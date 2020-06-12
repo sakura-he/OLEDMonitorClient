@@ -2,6 +2,7 @@
 #include <Ticker.h>
 #include <U8g2lib.h>
 #include <string.h>
+#include <math.h> /* round, floor, ceil, trunc */
 #include <stdio.h>
 String infoArr[3][6]; // 存放从服务器获取到的数据
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
@@ -65,11 +66,12 @@ const char *SSIDPW = "";      // WiFi密码,没有留空 SSISPASSWORD
 const String ServerIP = "192.168.10.59";
 const int ServerPort = 553;
 byte CONStatusCode = 0;
-byte CONTimer = 24; // 连接计时器
-byte gifIndex = 0;  // loading gif帧数组索引
+byte CONTimer = 24; // *连接计时器
+byte gifIndex = 0;  // *loading gif帧数组索引
 bool loadGIndxFstTimer = 1;
-byte ServerLoading = 1; // 服务器是否加载中flag
-byte infoIndex = 0;     // 信息显示帧 (轮播)
+byte ServerLoading = 1; // *服务器是否加载中flag
+byte infoIndex = 0;     // *信息显示帧 (轮播)
+const long infoSwitchTime = 3000;  // 信息轮播时间间隔3秒
 void setup()
 {
     pinMode(LED_BUILTIN, OUTPUT); // 不需要led灯可以注释掉这一行
@@ -79,7 +81,7 @@ void setup()
     u8g2.begin();
     isCON.once_ms(200, isCONFun);                  // 定时检测连接状态
     getServerInfoTicker.attach(2, getServaerInfo); // 定时获取服务器信息
-    swInfoTimer.once_ms(2000, infoIndexSw);        // 开启切换信息显示帧
+    swInfoTimer.once_ms(infoSwitchTime, infoIndexSw); // 开启切换信息显示帧
 }
 void loop()
 {
@@ -108,7 +110,6 @@ void loop()
             };
         }
     }
-
     OLEDDraw();
 }
 // 定时检测客户端和服务器的连接状态并更新连接状态码,以及重连后的重置重连中的操作
@@ -161,16 +162,15 @@ void OLEDDraw()
         OLEDLoadDraw(gifList, 66 + 12, 0, wifi2, 0, 0, "WiFi", 0, 64 - 16, 0, 64);
         break;
     case 1:
-        OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 64 + 10, 64 - 16, 38, 64);
+        OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 128 - getFontWidth(u8g2_font_helvB12_te, "Server"), 64 - 16, 38, 64);
         break;
     case 2:
         if (ServerLoading)
         {
-            OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 64 + 10, 64 - 16, 38, 64);
+            OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 128 - getFontWidth(u8g2_font_helvB12_te, "Link"), 64 - 16, 38, 64);
         }
         else
         {
-
             gifTicker.detach();    // 关闭索引定时器
             loadGIndxFstTimer = 1; // 重置索引定时器开启开关为开,以便下次连接加载动画使用
             OLEDInfoDraw();
@@ -186,18 +186,18 @@ void gifIndexSw()
         gifIndex = 0;
     gifTicker.once_ms(30, gifIndexSw);
 }
-// 未连接服务的加载界面 可以自定义,参数很多;吐槽下c语言的数据类型:老奶奶的裹脚布,又臭又长fuck
+// 未连接服务的加载界面 可以自定义,参数很多;吐槽下c语言的数据类型:老奶奶的裹脚布,又臭又长 your mother f*ck;
 void OLEDLoadDraw(const unsigned char *const *gifList, unsigned int gifX, int gifY, const unsigned char *icon, int iconX, int iconY, const char *Heading, int HeadingX, int HeadingY, int tipsX, int tipsY)
 {
+    u8g2.clearBuffer();
     if (loadGIndxFstTimer) // 开启gif索引定时器
     {
         gifTicker.once_ms(15, gifIndexSw);
         loadGIndxFstTimer = 0; // 关闭
     }
-    u8g2.clearBuffer();
     u8g2.drawXBMP(gifX, gifY, 64, 64, gifList[gifIndex]);
-    u8g2.setFont(u8g2_font_helvB12_te);
     u8g2.drawXBMP(iconX, iconY, 32, 32, icon);
+    u8g2.setFont(u8g2_font_helvB12_te);
     u8g2.drawStr(HeadingX, HeadingY, Heading);
     u8g2.setFont(u8g2_font_9x18_tf);
     u8g2.drawStr(tipsX, tipsY, "Connection");
@@ -269,32 +269,58 @@ String getValue(String data, char separator, int index)
 }
 void OLEDInfoDraw()
 {
-    // if (infoIndexFstTimer) // 开启gif索引定时器
-    // {
-    //     drawInfoTimer.once_ms(1000, infoIndexSw);
-    //     infoIndexFstTimer = 0; // 关闭
-    // }
-    byte infoKeyLength = infoArr[infoIndex][2].length();   // 获取key的长度,在下面绘制起始点坐标
-    byte infoValueLength = infoArr[infoIndex][3].length(); // 获取value
-    int iconIndex = infoArr[infoIndex][1].toInt();         // 转换为int 获取分配的图标索引
-    switch (infoArr[infoIndex][0].toInt())                 // 选择视图
+    u8g2.clearBuffer();
+    // 将数组的值类型转换
+    const char *keyChar = infoArr[infoIndex][2].c_str(),
+               *valueChar = infoArr[infoIndex][3].c_str(),
+               *unitChar = infoArr[infoIndex][4].c_str(),
+               *allChar = infoArr[infoIndex][5].c_str();
+    String VU = infoArr[infoIndex][3] + infoArr[infoIndex][4]; // value+unit
+    int view = infoArr[infoIndex][0].toInt(), iconIndex = infoArr[infoIndex][1].toInt();
+    String ListInfoArr[4];
+    // 视图模式
+    switch (view)
     {
-    case 1: // 视图1样式
-        u8g2.clearBuffer();
+    case 1:                                                      // 大字样式
         u8g2.drawXBMP(128 - 32, 0, 32, 32, iconList[iconIndex]); //icon 右上角
         u8g2.setFont(u8g2_font_courB18_tf);
-        u8g2.drawStr(0, 32 - 7, infoArr[infoIndex][2].c_str()); //6个字符 一个字符key
+        u8g2.drawStr(0, 32 - 7, keyChar); //6个字符 一个字符key
         u8g2.setFont(u8g2_font_10x20_mn);
-        u8g2.drawStr(80 - infoValueLength * 10, 64, infoArr[infoIndex][3].c_str()); // value
+        u8g2.drawStr(80 - 8 * 10, 64, valueChar); // value
         u8g2.setFont(u8g2_font_profont17_mf);
-        u8g2.drawStr(80 + 4, 64, infoArr[infoIndex][4].c_str()); //unit单位
-        u8g2.sendBuffer();
+        u8g2.drawStr(80 + 4, 64, unitChar); //unit单位
+        break;
+    case 2: // 视图2样式 进度条样式,没辙了搞个骚操作,你要扩展也可搞骚操作,我坑给你留了,你来埋
+
+        u8g2.setFont(u8g2_font_t0_16_mf);                                  //infoArr[i][3].concat(infoArr[i][4])
+        u8g2.drawStr(0, 14, keyChar);                                      // 最好使用大写字母,不超过5个字符
+        u8g2.drawStr(128 - u8g2.getUTF8Width(VU.c_str()), 14, VU.c_str()); //单位不超过4个,value不超过6个
+        u8g2.drawRFrame(0, 16, 128, 16, 0);
+        u8g2.drawRBox(0 + 2, 16 + 2, int(floor(atof(valueChar) / atof(allChar) * (128 - 4))), 16 - 2 * 2, 0); //v/a*124取整+                                                                                                       // 可以扩展为更多注意修改上面的进度条的样式
+        // 第二行 数据格式 key#value#unit#all
+        for (int i = 0; i < 4; i++) // 提取infoArr本应该是图标索引的字符串
+        {
+            ListInfoArr[i] = getValue(infoArr[infoIndex][1], '#', i);                                                                         //反正进图条也不需要图标,借用一下
+        }                                                                                                                                     //infoArr[i][3].concat(infoArr[i][4])
+        u8g2.drawStr(0, 32 + 14, ListInfoArr[0].c_str());                                                                                     //key                                                                            // 最好使用大写字母,不超过5个字符
+        u8g2.drawStr(128 - u8g2.getUTF8Width((ListInfoArr[1] + ListInfoArr[2]).c_str()), 32 + 14, (ListInfoArr[1] + ListInfoArr[2]).c_str()); //单位不超过4个,value不超过6个
+        // 我是写懵逼了,你看懵逼了吗,c艹
+        u8g2.drawRFrame(0, 32 + 16, 128, 16, 0);
+        u8g2.drawRBox(0 + 2, 32 + 16 + 2, int(floor(atof(ListInfoArr[1].c_str()) / atof(ListInfoArr[3].c_str()) * (128 - 4))), 16 - 2 * 2, 0); //v/a*124取整+                                                                                                       // 可以扩展为更多注意修改上面的进度条的样式
         break;
     }
+    u8g2.sendBuffer();
 }
+// 切换信息显示帧
 void infoIndexSw()
 {
     if (++infoIndex >= 3)
         infoIndex = 0;
-    swInfoTimer.once_ms(2000, infoIndexSw);
+    swInfoTimer.once_ms(infoSwitchTime, infoIndexSw);
+}
+// 获取字符宽度
+int getFontWidth(const uint8_t *font, const char *str)
+{
+    u8g2.setFont(font);
+    return u8g2.getUTF8Width(str);
 }
