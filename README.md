@@ -79,8 +79,8 @@ https://www.arduino.cc/en/Main/Software
 ### 烧录到ESP8266
 
 - 给ESP8266开发板插入USB数据线并连接到电脑USB接口上
-- 选择ESP8266开发板的端口(作者这里是COM3,你的我不知道)![image-20200614105732800](C:%5CUsers%5Csakura%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5Cimage-20200614105732800.png)
-- 点击编译按钮![image-20200614105553105](C:%5CUsers%5Csakura%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5Cimage-20200614105553105.png)
+- 选择ESP8266开发板的端口(作者这里是COM3,你的我不知道)![image-20200614105732800](https://github.com/sakura-he/OLEDMonitorClient/blob/master/img/image-20200614105732800.png)
+- 点击编译按钮![image-20200614105553105](https://github.com/sakura-he/OLEDMonitorClient/blob/master/img/image-20200614105553105.png)
 
 ### 开启服务端
 
