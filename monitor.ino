@@ -1,6 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <U8g2lib.h>
+#include <sstream>
 #include <string.h>
 #include <math.h> /* round, floor, ceil, trunc */
 #include <stdio.h>
@@ -61,26 +62,27 @@ Ticker swInfoTimer;         // 切换信息显示帧
 
 Ticker drawInfoTimer;
 WiFiClient client;
-const char *SSID = "OpenWrt"; // WiFi名 SSID
-const char *SSIDPW = "";      // WiFi密码,没有留空 SSISPASSWORD
-const String ServerIP = "192.168.10.59";
-const int ServerPort = 553;
+const char *SSID = "OpenWrt";            // WiFi名 SSID
+const char *SSIDPW = "";                 // WiFi密码,没有留空 SSISPASSWORD
+const String ServerIP = "192.168.10.59"; // 服务器地址
+const int ServerPort = 553;              // 服务器端口
 byte CONStatusCode = 0;
 byte CONTimer = 24; // *连接计时器
 byte gifIndex = 0;  // *loading gif帧数组索引
 bool loadGIndxFstTimer = 1;
-byte ServerLoading = 1; // *服务器是否加载中flag
-byte infoIndex = 0;     // *信息显示帧 (轮播)
-const long infoSwitchTime = 3000;  // 信息轮播时间间隔3秒
+byte ServerLoading = 1;           // *服务器是否加载中flag
+byte infoIndex = 0;               // *信息显示帧 (轮播)
+const long infoSwitchTime = 4000; // 信息轮播时间间隔3秒
 void setup()
 {
-    pinMode(LED_BUILTIN, OUTPUT); // 不需要led灯可以注释掉这一行
+    // //pinMode(LED_BUILTIN, OUTPUT);
+    // digitalWrite(LED_BUILTIN, 0);
     Serial.begin(9600);
     WiFi.mode(WIFI_STA);
     WiFi.begin(SSID, SSIDPW);
     u8g2.begin();
-    isCON.once_ms(200, isCONFun);                  // 定时检测连接状态
-    getServerInfoTicker.attach(2, getServaerInfo); // 定时获取服务器信息
+    isCON.once_ms(200, isCONFun);                     // 定时检测连接状态
+    getServerInfoTicker.attach(2, getServaerInfo);    // 定时获取服务器信息
     swInfoTimer.once_ms(infoSwitchTime, infoIndexSw); // 开启切换信息显示帧
 }
 void loop()
@@ -93,7 +95,7 @@ void loop()
             if (CONTimer >= 50) // 10 秒超时重连
             {
                 WiFi.printDiag(Serial);
-                Serial.println("WiFi未连接,尝试重新连接");
+                //Serial.println("WiFi未连接,尝试重新连接");
                 WiFi.disconnect();
                 WiFi.begin(SSID, SSIDPW); // 尝试重新连接WiFi
                 CONTimer = 0;
@@ -103,7 +105,7 @@ void loop()
             if (CONTimer >= 50) // 5 秒超时重连服务器
             {
                 WiFi.printDiag(Serial);
-                Serial.println("服务器未连接,尝试重新连接");
+                //Serial.println("服务器未连接,尝试重新连接");
                 client.stop();
                 client.connect(ServerIP, ServerPort);
                 CONTimer = 0;
@@ -142,7 +144,7 @@ void isCONFun()
     }
     else
     {
-        Serial.println(CONStatusCode);
+        //Serial.println(CONStatusCode);
         if (CONStatusCode < 2) // 服务器已连接,但状态码为未连接WiFi值修复状态码
         {
             CONStatusCode = 2;     // 更新状态码
@@ -162,12 +164,12 @@ void OLEDDraw()
         OLEDLoadDraw(gifList, 66 + 12, 0, wifi2, 0, 0, "WiFi", 0, 64 - 16, 0, 64);
         break;
     case 1:
-        OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 128 - getFontWidth(u8g2_font_helvB12_te, "Server"), 64 - 16, 38, 64);
+        OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 128 - getFontWidth(u8g2_font_helvB12_te, "Server"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
         break;
     case 2:
         if (ServerLoading)
         {
-            OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 128 - getFontWidth(u8g2_font_helvB12_te, "Link"), 64 - 16, 38, 64);
+            OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 128 - getFontWidth(u8g2_font_helvB12_te, "Link"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
         }
         else
         {
@@ -197,9 +199,10 @@ void OLEDLoadDraw(const unsigned char *const *gifList, unsigned int gifX, int gi
     }
     u8g2.drawXBMP(gifX, gifY, 64, 64, gifList[gifIndex]);
     u8g2.drawXBMP(iconX, iconY, 32, 32, icon);
-    u8g2.setFont(u8g2_font_helvB12_te);
+    u8g2.setFont(u8g2_font_helvB12_te); //u8g2_font_helvB12_te
     u8g2.drawStr(HeadingX, HeadingY, Heading);
-    u8g2.setFont(u8g2_font_9x18_tf);
+    u8g2.setFont(u8g2_font_t0_16b_tf);
+    //u8g2_font_9x18_tf
     u8g2.drawStr(tipsX, tipsY, "Connection");
     u8g2.sendBuffer();
 }
@@ -215,7 +218,7 @@ void getServaerInfo()
 void Tcp_Handler(String data)
 {
     String tempStr = "";
-    Serial.println(data);
+    //Serial.println(data);
     if (!(data.charAt(0) == '?' && data.charAt(data.length() - 1) == '!')) // 字符不是?-!形式
         ServerLoading = 1;                                                 // 服务器初始化中
     else
@@ -269,6 +272,7 @@ String getValue(String data, char separator, int index)
 }
 void OLEDInfoDraw()
 {
+    u8g2.setFontMode(1); // 开启字体周围透明
     u8g2.clearBuffer();
     // 将数组的值类型转换
     const char *keyChar = infoArr[infoIndex][2].c_str(),
@@ -277,22 +281,49 @@ void OLEDInfoDraw()
                *allChar = infoArr[infoIndex][5].c_str();
     String VU = infoArr[infoIndex][3] + infoArr[infoIndex][4]; // value+unit
     int view = infoArr[infoIndex][0].toInt(), iconIndex = infoArr[infoIndex][1].toInt();
+    float pl = atof(valueChar) / atof(allChar); // 已用占比
+    //Serial.println(pl);
+    int HH;
     String ListInfoArr[4];
+    char pc[3];
+    itoa(int(pl * 100), pc, 10);
+    String pcstr(pc);
+    pcstr.concat("%");
     // 视图模式
     switch (view)
     {
-    case 1:                                                      // 大字样式
-        u8g2.drawXBMP(128 - 32, 0, 32, 32, iconList[iconIndex]); //icon 右上角
-        u8g2.setFont(u8g2_font_courB18_tf);
-        u8g2.drawStr(0, 32 - 7, keyChar); //6个字符 一个字符key
-        u8g2.setFont(u8g2_font_10x20_mn);
-        u8g2.drawStr(80 - 8 * 10, 64, valueChar); // value
-        u8g2.setFont(u8g2_font_profont17_mf);
-        u8g2.drawStr(80 + 4, 64, unitChar); //unit单位
+    case 1: // 大字样式
+        // u8g2.drawXBMP(128 - 32, 0, 32, 32, iconList[iconIndex]); //icon 右上角
+        // u8g2.setFont(u8g2_font_courB18_tf);
+        // u8g2.drawStr(0, 32 - 7, keyChar); //6个字符 一个字符key
+        // u8g2.setFont(u8g2_font_10x20_mn);
+        // u8g2.drawStr(80 - 8 * 10, 64, valueChar); // value
+        // u8g2.setFont(u8g2_font_profont17_mf);
+        // u8g2.drawStr(80 + 4, 64, unitChar); //unit单位
+        // 以上是带图标样式,有点丑,以弃用
+        //标题;备用字体:  u8g2_font_bauhaus2015_tr u8g2_font_helvB12_tr   u8g2_font_lastapprenticebold_tr  u8g2_font_tallpix_tr
+        u8g2.setFont(u8g2_font_lastapprenticebold_tr);
+        HH = u8g2.getMaxCharHeight();
+        u8g2.drawStr((128 - u8g2.getUTF8Width(keyChar)) / 2, 17, keyChar); // 最高17
+        u8g2.setFont(u8g2_font_freedoomr25_tn);
+        // value
+        u8g2.drawStr(128 - u8g2.getUTF8Width(valueChar) - 34, 50, valueChar); // 这个字体有点上移,+3
+
+        u8g2.drawRBox(96, 23, 32, 12, 3); // 百分比框
+        u8g2.drawRBox(96, 36, 32, 12, 3); // 单位框
+        u8g2.setDrawColor(0);             // 文字颜色异或
+        u8g2.setFont(u8g2_font_t0_14b_mr);
+        u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(pcstr.c_str())) / 2, 50 - 16, pcstr.c_str()); // 单位文字
+        u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(unitChar)) / 2, 50 - 3, unitChar);            // 单位文字
+        // 进度条
+        u8g2.setDrawColor(1);
+        u8g2.drawFrame(0, 52, 128, 12); //
+        u8g2.drawBox(0 + 2, 52 + 2, (int(floor(pl * (128 - 2 * 2)))), 8);
+
         break;
     case 2: // 视图2样式 进度条样式,没辙了搞个骚操作,你要扩展也可搞骚操作,我坑给你留了,你来埋
 
-        u8g2.setFont(u8g2_font_t0_16_mf);                                  //infoArr[i][3].concat(infoArr[i][4])
+        u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);                     //infoArr[i][3].concat(infoArr[i][4]) u8g2_font_t0_16_mf
         u8g2.drawStr(0, 14, keyChar);                                      // 最好使用大写字母,不超过5个字符
         u8g2.drawStr(128 - u8g2.getUTF8Width(VU.c_str()), 14, VU.c_str()); //单位不超过4个,value不超过6个
         u8g2.drawRFrame(0, 16, 128, 16, 0);
@@ -308,6 +339,8 @@ void OLEDInfoDraw()
         u8g2.drawRFrame(0, 32 + 16, 128, 16, 0);
         u8g2.drawRBox(0 + 2, 32 + 16 + 2, int(floor(atof(ListInfoArr[1].c_str()) / atof(ListInfoArr[3].c_str()) * (128 - 4))), 16 - 2 * 2, 0); //v/a*124取整+                                                                                                       // 可以扩展为更多注意修改上面的进度条的样式
         break;
+    case 3:
+        u8g2.drawRBox(0, 0, 128, 64, 0);
     }
     u8g2.sendBuffer();
 }
