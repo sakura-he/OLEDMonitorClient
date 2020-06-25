@@ -1,4 +1,3 @@
-# 由于作者是第一次使用C++编写代码,代码中可能有大量的冗余代码和BUG,欢迎指出和修改
 
 # 需要配合服务端使用https://github.com/sakura-he/monitor.git (nodejs编写)
 
@@ -85,3 +84,5 @@ https://www.arduino.cc/en/Main/Software
 ### 开启服务端
 
 - 服务端github地址https://github.com/sakura-he/monitor.git
+# 由于作者是第一次使用C++编写代码,代码中可能有大量的冗余代码和BUG,欢迎指出和修改
+
