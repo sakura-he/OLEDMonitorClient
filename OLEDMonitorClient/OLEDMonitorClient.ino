@@ -294,7 +294,6 @@ void OLEDInfoDraw()
         u8g2.setFontMode(0);
         break;
     }
-    u8g2.drawLine(104, 0, 104, 64);
     u8g2.sendBuffer();
 }
 
