@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include "loadingGif.h"
 #include "iconImg.h"
-#include <bits/stdc++.h>
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 // 图标数组
 const unsigned char *const iconList[] U8X8_PROGMEM = {active, cpu, box, database, drive, global, nodejs, server, terminal, thermomete, wifi, link, wifi2};
@@ -219,8 +218,8 @@ String getValue(String data, char separator, int index)
 // 系统信息绘制
 void OLEDInfoDraw()
 {
+    // value all
     u8g2.clearBuffer();
-    // 将数组的值类型转换为*char
     const String view = infoArr[infoIndex][0],
                  option = infoArr[infoIndex][1],
                  key = infoArr[infoIndex][2],
@@ -228,7 +227,7 @@ void OLEDInfoDraw()
                  unit = infoArr[infoIndex][4],
                  all = infoArr[infoIndex][5];
 
-    float pl = value.toFloat() /all.toFloat(); // 已用占比
+    float pl = value.toFloat() / all.toFloat(); // 已用占比
     String ListInfoArr[4];
     char pc[3];
     itoa(int(pl * 100), pc, 10);
@@ -249,7 +248,7 @@ void OLEDInfoDraw()
             u8g2.drawRBox(96, 23, 32, 12, 3); // 百分比框
             u8g2.setDrawColor(0);             // 文字反色
             u8g2.setFont(u8g2_font_t0_14b_mr);
-            u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(pcstr.c_str())) / 2, 50 - 16, pcstr.c_str()); // 百分比文字
+            u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(pcStr(value, all).c_str())) / 2, 50 - 16, pcstr.c_str()); // 百分比文字
             u8g2.setDrawColor(1);
         }
         u8g2.drawRBox(96, 36, 32, 12, 3); // 单位框
@@ -260,34 +259,42 @@ void OLEDInfoDraw()
         // 进度条
         u8g2.setDrawColor(1);
         u8g2.drawFrame(0, 52, 128, 12); //
-        u8g2.drawBox(0 + 2, 52 + 2, (int(floor(pl * (128 - 2 * 2)))), 8);
+        u8g2.drawBox(0 + 2, 52 + 2, (int(floor(value.toFloat() / all.toFloat() * 124))), 8);
         u8g2.setFontMode(0);
         break;
     case 2: // 视图2样式 进度条样式
         u8g2.setFontMode(1);
         // 进度条1
         // 提取服务端列表模式下的第一组数据
-        for (int i = 0; i < 4; i++) // 提取infoArr本应该是图标索引的字符串
+        for (int i = 0; i < 4; i++)
         {
             ListInfoArr[i] = getValue(infoArr[infoIndex][1], '#', i);
         }
 
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
-        u8g2.drawStr(0, 14, ListInfoArr[0].c_str());                                                                                     //key
-        u8g2.drawStr(128 - u8g2.getUTF8Width((ListInfoArr[1] + ListInfoArr[2]).c_str()), 14, (ListInfoArr[1] + ListInfoArr[2]).c_str()); //value+key
-        u8g2.drawRFrame(0, 16, 128, 16, 0);
-        u8g2.drawRBox(2, 18, int(floor(atof(ListInfoArr[1].c_str()) / atof(ListInfoArr[3].c_str()) * (128 - 4))), 12, 0); //百分比
-
+        u8g2.drawStr(0, 14, ListInfoArr[0].c_str()); //key
+        u8g2.setFont(u8g2_font_t0_14b_mr);
+        u8g2.drawStr(128 - u8g2.getUTF8Width((ListInfoArr[1] + "/" + ListInfoArr[3] + ListInfoArr[2]).c_str()), 14, (ListInfoArr[1] + "/" + ListInfoArr[3] + ListInfoArr[2]).c_str()); //value/all unit
+        u8g2.drawRFrame(0, 16, 128, 16, 0);                                                                                                                                            // 百分比进度条外框
+        u8g2.drawRBox(2, 18, int(floor(ListInfoArr[1].toFloat() / ListInfoArr[3].toFloat() * 124)), 12, 0);                                                                            //百分比进度条 两侧各空白2像素
+        u8g2.setDrawColor(2);                                                                                                                                                          // 文字反色
+        u8g2.drawStr(2 + (124 - u8g2.getUTF8Width(pcStr(ListInfoArr[1], ListInfoArr[3]).c_str())) / 2, 28, pcStr(ListInfoArr[1], ListInfoArr[3]).c_str());                             // 百分比文字
+        u8g2.setDrawColor(1);
         // 进度条2
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
-        u8g2.drawStr(0, 46, key.c_str());                                                     // key
-        u8g2.drawStr(128 - u8g2.getUTF8Width(VU.c_str()), 46, VU.c_str());                    // value+unit
-        u8g2.drawRFrame(0, 48, 128, 16, 0);                                                   // 百分比框
-        u8g2.drawRBox(2, 50, int(floor(stof(value) / atof(all.c_str()) * (128 - 4))), 12, 0); // 百分比
-
+        u8g2.drawStr(0, 46, key.c_str()); // key
+        u8g2.setFont(u8g2_font_t0_14b_mr);
+        u8g2.drawStr(128 - u8g2.getUTF8Width((value + "/" + all + unit).c_str()), 46, (value + "/" + all + unit).c_str()); //value/all unit
+        u8g2.drawRFrame(0, 48, 128, 16, 0);                                                                                // 百分比框
+        u8g2.drawRBox(2, 50, int(floor(value.toFloat() / all.toFloat() * 124)), 12, 0);                                    // 百分比
+        u8g2.drawRBox(2, 18, int(floor(ListInfoArr[1].toFloat() / ListInfoArr[3].toFloat() * 124)), 12, 0);                //百分比进度条 两侧各空白2像素
+        u8g2.setDrawColor(2);                                                                                              // 文字反色
+        u8g2.drawStr(2 + (124 - u8g2.getUTF8Width(pcStr(value, all).c_str())) / 2, 60, pcStr(value, all).c_str());         // 百分比文字
+        u8g2.setDrawColor(1);
         u8g2.setFontMode(0);
         break;
     }
+    u8g2.drawLine(104, 0, 104, 64);
     u8g2.sendBuffer();
 }
 
@@ -304,4 +311,10 @@ int getFontWidth(const uint8_t *font, const char *str)
 {
     u8g2.setFont(font);
     return u8g2.getUTF8Width(str);
+}
+String pcStr(String fst, String sec)
+{
+    String tempStr(int(floor(fst.toFloat() / sec.toFloat() * 100))); // 计算百分比
+    tempStr += "%";                                                  // 添加百分号
+    return tempStr;
 }
