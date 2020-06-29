@@ -5,39 +5,51 @@
 #include <string.h>
 #include <math.h> /* round, floor, ceil, trunc */
 #include <stdio.h>
+#include <Button2.h>
 #include "loadingGif.h"
 #include "iconImg.h"
+#include <DHT.h>
+#define LONGCLICK_MS 2000; // 按键长按触发时间
+//#define DHTTYPE DHT11;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 // 图标数组
 const unsigned char *const iconList[] U8X8_PROGMEM = {active, cpu, box, database, drive, global, nodejs, server, terminal, thermomete, wifi, link, wifi2};
 // 加载动画数组 loading array
 const unsigned char *const gifList[] U8X8_PROGMEM = {load1, load2, load3, load4, load5, load6, load7, load8, load9, load10, load11, load12, load13, load14, load15, load16, load17, load18, load19, load20, load21, load22, load23, load24, load25, load26, load27, load28};
-Ticker isCON;                            // 检测连接定时器
-Ticker gifTicker;                        // 更新loading gif 数组索引定时器
-Ticker getServerInfoTicker;              // 连接成功后定时向服务器获取请求
-Ticker swInfoTimer;                      // 切换信息显示帧
-WiFiClient client;                       // Tcp客户端
-String infoArr[3][6];                    // 存放从服务器获取到的数据
-const char *SSID = "OpenWrt";            // WiFi名 SSID
-const char *SSIDPW = "";                 // WiFi密码,没有留空 SSISPASSWORD
-const String ServerIP = "192.168.10.90"; // 服务器地址
-const int ServerPort = 553;              // 服务器端口
-byte CONStatusCode = 0;
-byte CONTimer = 24; // *连接计时器
-byte gifIndex = 0;  // *loading gif帧数组索引
+Ticker isCON;                           // 检测连接定时器
+Ticker gifTicker;                       // 更新loading gif 数组索引定时器
+Ticker getServerInfoTicker;             // 连接成功后定时向服务器获取请求
+Ticker swInfoTimer;                     // 切换信息显示帧
+Ticker SPDAdjustTimer;                  // 长按超时定时器
+WiFiClient client;                      // Tcp客户端
+String infoArr[3][6];                   // 存放从服务器获取到的数据
+const char *SSID = "OpenWrt";           // WiFi名 SSID
+const char *SSIDPW = "";                // WiFi密码,没有留空 SSISPASSWORD
+const String ServerIP = "192.168.10.9"; // 服务器地址
+const int ServerPort = 553;             // 服务器端口
+byte CONStatusCode = 0;                 // 状态码
+byte CONTimer = 24;                     // *连接计时器
+byte gifIndex = 0;                      // *loading gif帧数组索引
 bool loadGIndxFstTimer = 1;
-byte ServerLoading = 1;           // *服务器是否加载中flag
-byte infoIndex = 0;               // *信息显示帧 (轮播)
-const long infoSwitchTime = 4000; // 信息轮播时间间隔3秒
+byte ServerLoading = 1; // *服务器是否加载中flag
+byte infoIndex = 0;     // *信息显示帧 (轮播)
+int infoSwitchTime = 4; // 信息轮播时间间隔3秒
+const byte btn1Pin = 0; // 按钮引脚
+const byte DTHPin = 14; // 温湿度传感器引脚
+//DHT dth(DTHPin, DHTTYPE);
+Button2 btn1 = Button2(btn1Pin);
 void setup()
 {
     Serial.begin(9600);
+    pinMode(12, OUTPUT);
     WiFi.mode(WIFI_STA);
     WiFi.begin(SSID, SSIDPW);
     u8g2.begin();
-    isCON.once_ms(200, isCONFun);                     // 定时检测连接状态
-    getServerInfoTicker.attach(2, getServaerInfo);    // 定时获取服务器信息
-    swInfoTimer.once_ms(infoSwitchTime, infoIndexSw); // 开启切换信息显示帧
+    isCON.once_ms(200, isCONFun);                  // 定时检测连接状态
+    getServerInfoTicker.attach(2, getServaerInfo); // 定时获取服务器信息
+    swInfoTimer.once(infoSwitchTime, infoIndexSw); // 开启切换信息显示帧
+    btn1.setClickHandler(btn1Handler);
+    btn1.setLongClickHandler(btn1Handler);
 }
 void loop()
 {
@@ -63,6 +75,7 @@ void loop()
         }
     }
     OLEDDraw();
+    btn1.loop();
 }
 // 定时检测客户端和服务器的连接状态并更新连接状态码,以及重连后的重置重连中的操作
 void isCONFun()
@@ -112,10 +125,10 @@ void OLEDDraw()
         //开启一个定时器更新索引,没有更新状态码只能执行一次"开启帧定时器",除非状态码更新,但状态码更新要确保上次状态码的帧处理定时器关闭
         OLEDLoadDraw(gifList, 66 + 12, 0, wifi2, 0, 0, "WiFi", 0, 64 - 16, 0, 64);
         break;
-    case 1:
+    case 1: //服务器未连接显式内容
         OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 128 - getFontWidth(u8g2_font_helvB12_te, "Server"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
         break;
-    case 2:
+    case 2:                // 屏幕绘制从服务器获取到的系统信息
         if (ServerLoading) // 服务端获取系统数据没准备好
         {
             OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 128 - getFontWidth(u8g2_font_helvB12_te, "Link"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
@@ -127,39 +140,20 @@ void OLEDDraw()
             OLEDInfoDraw();
         }
         break;
+    case 3:
+        u8g2.clearBuffer();
+        u8g2.drawStr(0, 50, "CASE 4 HELLOWORLD");
+        u8g2.sendBuffer();
+        break;
+    case 4:
+        SPDCtrlDraw();
     }
-}
-
-// Loading动画帧切换
-void gifIndexSw()
-{
-    if (++gifIndex >= 28)
-        gifIndex = 0;
-    gifTicker.once_ms(30, gifIndexSw);
-}
-
-// 未连接服务的加载界面
-void OLEDLoadDraw(const unsigned char *const *gifList, unsigned int gifX, int gifY, const unsigned char *icon, int iconX, int iconY, const char *Heading, int HeadingX, int HeadingY, int tipsX, int tipsY)
-{
-    u8g2.clearBuffer();
-    if (loadGIndxFstTimer) // 开启gif索引定时器，防止在loop中多次开启
-    {
-        gifTicker.once_ms(15, gifIndexSw);
-        loadGIndxFstTimer = 0; // 关闭下次不再重复开启gifTicker定时器
-    }
-    u8g2.drawXBMP(gifX, gifY, 64, 64, gifList[gifIndex]);
-    u8g2.drawXBMP(iconX, iconY, 32, 32, icon);
-    u8g2.setFont(u8g2_font_helvB12_te);
-    u8g2.drawStr(HeadingX, HeadingY, Heading);
-    u8g2.setFont(u8g2_font_t0_16b_tf);
-    u8g2.drawStr(tipsX, tipsY, "Connection");
-    u8g2.sendBuffer();
 }
 
 // 发送获取服务端系统信息请求
 void getServaerInfo()
 {
-    if (CONStatusCode < 2) // 没连接到服务端作甚?
+    if (CONStatusCode != 2) // 没连接到服务端作甚?
         return;
     client.write("get");    // 请求数据
     Tcp_Handler(readTcp()); // 数据处理
@@ -214,7 +208,30 @@ String getValue(String data, char separator, int index)
     }
     return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
-
+// 未连接服务的加载界面
+void OLEDLoadDraw(const unsigned char *const *gifList, unsigned int gifX, int gifY, const unsigned char *icon, int iconX, int iconY, const char *Heading, int HeadingX, int HeadingY, int tipsX, int tipsY)
+{
+    u8g2.clearBuffer();
+    if (loadGIndxFstTimer) // 开启gif索引定时器，防止在loop中多次开启
+    {
+        gifTicker.once_ms(15, gifIndexSw);
+        loadGIndxFstTimer = 0; // 关闭下次不再重复开启gifTicker定时器
+    }
+    u8g2.drawXBMP(gifX, gifY, 64, 64, gifList[gifIndex]);
+    u8g2.drawXBMP(iconX, iconY, 32, 32, icon);
+    u8g2.setFont(u8g2_font_helvB12_te);
+    u8g2.drawStr(HeadingX, HeadingY, Heading);
+    u8g2.setFont(u8g2_font_t0_16b_tf);
+    u8g2.drawStr(tipsX, tipsY, "Connection");
+    u8g2.sendBuffer();
+}
+// Loading动画帧切换
+void gifIndexSw()
+{
+    if (++gifIndex >= 28)
+        gifIndex = 0;
+    gifTicker.once_ms(30, gifIndexSw);
+}
 // 系统信息绘制
 void OLEDInfoDraw()
 {
@@ -296,13 +313,22 @@ void OLEDInfoDraw()
     }
     u8g2.sendBuffer();
 }
-
+// 绘制切换显示帧调速界面
+void SPDCtrlDraw()
+{
+    char str[4];
+    itoa(infoSwitchTime, str, 10);
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_7Segments_26x42_mn);
+    u8g2.drawStr((128 - 31 - u8g2.getUTF8Width(str)) / 2, 64, str);
+    u8g2.sendBuffer();
+}
 // 切换信息显示帧
 void infoIndexSw()
 {
     if (++infoIndex >= 3)
         infoIndex = 0;
-    swInfoTimer.once_ms(infoSwitchTime, infoIndexSw);
+    swInfoTimer.once(infoSwitchTime, infoIndexSw);
 }
 
 // 获取字符宽度
@@ -313,7 +339,60 @@ int getFontWidth(const uint8_t *font, const char *str)
 }
 String pcStr(String fst, String sec)
 {
+
     String tempStr(int(floor(fst.toFloat() / sec.toFloat() * 100))); // 计算百分比
     tempStr += "%";                                                  // 添加百分号
     return tempStr;
+}
+
+void btn1Handler(Button2 &BTN)
+{
+    static byte lastCONStatusCode;
+    switch (BTN.getClickType())
+    {
+    case SINGLE_CLICK: //单击
+        switch (CONStatusCode)
+        {
+        case 4: //状态码4(即进图调速模式)情况下单击将调节切换帧显示速度
+            SPDAdjustTimer.detach();
+            SPDAdjustTimer.once(3, closeSPDCtrl, lastCONStatusCode);
+            infoSwitchTime++;
+            if (infoSwitchTime >= 11)
+                infoSwitchTime = 1;
+            break;
+        case 2:
+        case 3: // 2,3情况下将来回切换画面
+            if (++CONStatusCode >= 4)
+                CONStatusCode = 2;
+            break;
+        }
+    case LONG_CLICK: // 长按
+        if (BTN.wasPressedFor() > 2000)
+        {
+            switch (CONStatusCode)
+            {
+            case 4: //状态码4(即进图调速模式)情况下单击将退出调速模式
+                closeSPDCtrl(lastCONStatusCode);
+                break;
+            case 2:
+            case 3:                                //状态码23长按进入将调节切换帧显示速度模式
+                lastCONStatusCode = CONStatusCode; // 保存当前屏幕显示模式
+                CONStatusCode = 4;
+                SPDAdjustTimer.once(3, closeSPDCtrl, lastCONStatusCode);
+                break;
+            }
+            break;
+        }
+    }
+}
+
+// 长按超时
+void closeSPDCtrl(byte lastCONStatusCode)
+{
+    SPDAdjustTimer.detach();           // 关闭定时器
+    CONStatusCode = lastCONStatusCode; // 回复上次状态码
+}
+// 气象站
+void CloudStation()
+{
 }
