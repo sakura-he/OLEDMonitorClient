@@ -5,11 +5,10 @@
 #include <string.h>
 #include <math.h> /* round, floor, ceil, trunc */
 #include <stdio.h>
-#include <Button2.h>
 #include "loadingGif.h"
 #include "iconImg.h"
 #include <DHT.h>
-#define LONGCLICK_MS 2000; // 按键长按触发时间
+#include "LogansGreatButton.h"
 //#define DHTTYPE DHT11;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 // 图标数组
@@ -36,20 +35,21 @@ byte infoIndex = 0;     // *信息显示帧 (轮播)
 int infoSwitchTime = 4; // 信息轮播时间间隔3秒
 const byte btn1Pin = 0; // 按钮引脚
 const byte DTHPin = 14; // 温湿度传感器引脚
+const byte ledPin = 2;  // led指示灯引脚
 //DHT dth(DTHPin, DHTTYPE);
-Button2 btn1 = Button2(btn1Pin);
+LogansGreatButton btn1(btn1Pin);
 void setup()
 {
     Serial.begin(9600);
-    pinMode(12, OUTPUT);
+    pinMode(ledPin, OUTPUT);
+    digitalWrite(ledPin, HIGH); // 关闭LED指示灯
     WiFi.mode(WIFI_STA);
     WiFi.begin(SSID, SSIDPW);
     u8g2.begin();
     isCON.once_ms(200, isCONFun);                  // 定时检测连接状态
     getServerInfoTicker.attach(2, getServaerInfo); // 定时获取服务器信息
     swInfoTimer.once(infoSwitchTime, infoIndexSw); // 开启切换信息显示帧
-    btn1.setClickHandler(btn1Handler);
-    btn1.setLongClickHandler(btn1Handler);
+    btn1Init();
 }
 void loop()
 {
@@ -75,7 +75,7 @@ void loop()
         }
     }
     OLEDDraw();
-    btn1.loop();
+    btn1.LOOPButtonController();
 }
 // 定时检测客户端和服务器的连接状态并更新连接状态码,以及重连后的重置重连中的操作
 void isCONFun()
@@ -115,7 +115,15 @@ void isCONFun()
         }
     }
 }
-
+void btn1Init()
+{
+    btn1.onActionPressed(btn1Handler);     // 按下
+    btn1.onPressShortRelease(btn1Handler); //短按弹起
+    btn1.onPressLongRelease(btn1Handler);  // 长按弹起
+    btn1.onHoldStart(btn1Handler);         // 开始进入长按保持状态
+    btn1.onHoldContinuous(btn1Handler);    // 长按保持状态
+    btn1.onHoldRelease(btn1Handler);       // 长按保持状态弹起
+}
 // 根据状态码来更绘制屏幕显示内容
 void OLEDDraw()
 {
@@ -262,15 +270,15 @@ void OLEDInfoDraw()
         if (option.toInt())
         {
             // 开启百分比框
-            u8g2.drawRBox(96, 23, 32, 12, 3); // 百分比框
+            u8g2.drawRBox(96, 23, 32, 12, 0); // 百分比框
             u8g2.setDrawColor(0);             // 文字反色
-            u8g2.setFont(u8g2_font_t0_14b_mr);
+            u8g2.setFont(u8g2_font_tenthinnerguys_tf);
             u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(pcStr(value, all).c_str())) / 2, 50 - 16, pcstr.c_str()); // 百分比文字
             u8g2.setDrawColor(1);
         }
-        u8g2.drawRBox(96, 36, 32, 12, 3); // 单位框
+        u8g2.drawRBox(96, 36, 32, 12, 0); // 单位框
         u8g2.setDrawColor(0);             // 文字反色
-        u8g2.setFont(u8g2_font_t0_14b_mr);
+        u8g2.setFont(u8g2_font_tenthinnerguys_tf);
         u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(unit.c_str())) / 2, 50 - 3, unit.c_str()); // 单位文字
         u8g2.setDrawColor(1);
         // 进度条
@@ -291,7 +299,7 @@ void OLEDInfoDraw()
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
         u8g2.drawStr(0, 14, ListInfoArr[0].c_str()); //key
         u8g2.setFont(u8g2_font_t0_14b_mr);
-        u8g2.drawStr(128 - u8g2.getUTF8Width((ListInfoArr[1] + "/" + ListInfoArr[3] + ListInfoArr[2]).c_str()), 14, (ListInfoArr[1] + "/" + ListInfoArr[3] + ListInfoArr[2]).c_str()); //value/all unit
+        u8g2.drawStr(128 - u8g2.getUTF8Width((ListInfoArr[1] + "|" + ListInfoArr[3] + ListInfoArr[2]).c_str()), 14, (ListInfoArr[1] + "|" + ListInfoArr[3] + ListInfoArr[2]).c_str()); //value/all unit
         u8g2.drawRFrame(0, 16, 128, 16, 0);                                                                                                                                            // 百分比进度条外框
         u8g2.drawRBox(2, 18, int(floor(ListInfoArr[1].toFloat() / ListInfoArr[3].toFloat() * 124)), 12, 0);                                                                            //百分比进度条 两侧各空白2像素
         u8g2.setDrawColor(2);                                                                                                                                                          // 文字反色
@@ -299,9 +307,9 @@ void OLEDInfoDraw()
         u8g2.setDrawColor(1);
         // 进度条2
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
-        u8g2.drawStr(0, 46, key.c_str()); // key
-        u8g2.setFont(u8g2_font_t0_14b_mr);
-        u8g2.drawStr(128 - u8g2.getUTF8Width((value + "/" + all + unit).c_str()), 46, (value + "/" + all + unit).c_str()); //value/all unit
+        u8g2.drawStr(0, 46, key.c_str());                                                                                  // key
+        u8g2.setFont(u8g2_font_t0_14b_mr);                                                                                 // u8g2_font_t0_14b_mr
+        u8g2.drawStr(128 - u8g2.getUTF8Width((value + "|" + all + unit).c_str()), 46, (value + "|" + all + unit).c_str()); //value/all unit
         u8g2.drawRFrame(0, 48, 128, 16, 0);                                                                                // 百分比框
         u8g2.drawRBox(2, 50, int(floor(value.toFloat() / all.toFloat() * 124)), 12, 0);                                    // 百分比
         u8g2.drawRBox(2, 18, int(floor(ListInfoArr[1].toFloat() / ListInfoArr[3].toFloat() * 124)), 12, 0);                //百分比进度条 两侧各空白2像素
@@ -313,16 +321,7 @@ void OLEDInfoDraw()
     }
     u8g2.sendBuffer();
 }
-// 绘制切换显示帧调速界面
-void SPDCtrlDraw()
-{
-    char str[4];
-    itoa(infoSwitchTime, str, 10);
-    u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_7Segments_26x42_mn);
-    u8g2.drawStr((128 - 31 - u8g2.getUTF8Width(str)) / 2, 64, str);
-    u8g2.sendBuffer();
-}
+
 // 切换信息显示帧
 void infoIndexSw()
 {
@@ -331,6 +330,31 @@ void infoIndexSw()
     swInfoTimer.once(infoSwitchTime, infoIndexSw);
 }
 
+// 绘制切换显示帧调速界面
+void SPDCtrlDraw()
+{
+    // 大字样式
+    char str[4];
+    itoa(infoSwitchTime, str, 10);
+    u8g2.clearBuffer();
+    u8g2.drawRFrame(0, 0, 128, 64, 0);
+    u8g2.setFontMode(1); // 文字透明
+    u8g2.setFont(u8g2_font_lastapprenticebold_tr);
+    u8g2.drawStr((128 - u8g2.getUTF8Width("Switch Speed12345")) / 2, 17, "Switch Speed12345"); // heading
+    u8g2.setFont(u8g2_font_freedoomr25_tn);
+    u8g2.drawStr(128 - u8g2.getUTF8Width(str) - 34, 50, str); // value
+    u8g2.drawRBox(96, 36, 32, 12, 0);                         // 单位框
+    u8g2.setDrawColor(0);                                     // 文字反色
+    u8g2.setFont(u8g2_font_Pixellari_tf);
+    u8g2.drawStr(96 + (32 - u8g2.getUTF8Width("s")) / 2, 50 - 3, "s"); // 单位文字
+    u8g2.setDrawColor(1);
+    // 进度条
+    u8g2.setDrawColor(1);
+    u8g2.drawFrame(0, 52, 128, 12);
+    u8g2.drawBox(2, 54, (int(floor(infoSwitchTime / float(10) * 124))), 8);
+    u8g2.setFontMode(0);
+    u8g2.sendBuffer();
+}
 // 获取字符宽度
 int getFontWidth(const uint8_t *font, const char *str)
 {
@@ -345,12 +369,16 @@ String pcStr(String fst, String sec)
     return tempStr;
 }
 
-void btn1Handler(Button2 &BTN)
+void btn1Handler()
 {
     static byte lastCONStatusCode;
-    switch (BTN.getClickType())
+    switch (btn1.getClickType())
     {
-    case SINGLE_CLICK: //单击
+    case _ActionPressed:           // 按下
+        digitalWrite(ledPin, LOW); // 开启LED指示灯
+        break;
+    case _PressShortRelease:        //单击弹起
+        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
         switch (CONStatusCode)
         {
         case 4: //状态码4(即进图调速模式)情况下单击将调节切换帧显示速度
@@ -366,23 +394,31 @@ void btn1Handler(Button2 &BTN)
                 CONStatusCode = 2;
             break;
         }
-    case LONG_CLICK: // 长按
-        if (BTN.wasPressedFor() > 2000)
+        break;
+    case _HoldRelease:              // 按住弹起
+        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
+        switch (CONStatusCode)
         {
-            switch (CONStatusCode)
-            {
-            case 4: //状态码4(即进图调速模式)情况下单击将退出调速模式
-                closeSPDCtrl(lastCONStatusCode);
-                break;
-            case 2:
-            case 3:                                //状态码23长按进入将调节切换帧显示速度模式
-                lastCONStatusCode = CONStatusCode; // 保存当前屏幕显示模式
-                CONStatusCode = 4;
-                SPDAdjustTimer.once(3, closeSPDCtrl, lastCONStatusCode);
-                break;
-            }
+        case 4: //状态码4(即进图调速模式)情况下单击将退出调速模式
+            closeSPDCtrl(lastCONStatusCode);
+            break;
+        case 2:
+        case 3:                                //状态码23长按进入将调节切换帧显示速度模式
+            lastCONStatusCode = CONStatusCode; // 保存当前屏幕显示模式
+            CONStatusCode = 4;
+            SPDAdjustTimer.once(999, closeSPDCtrl, lastCONStatusCode);
             break;
         }
+        break;
+    case _HoldContinuous: // 按住
+        static long lastTime = millis();
+        long nowTime = millis();
+        if (nowTime - lastTime >= 200)
+        {
+            digitalWrite(ledPin, !digitalRead(ledPin)); // 闪烁led灯
+            lastTime = millis();
+        }
+        break;
     }
 }
 
