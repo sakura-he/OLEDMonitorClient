@@ -1,34 +1,30 @@
-#include <ESP8266WiFi.h>
-#include <Ticker.h>
-#include <U8g2lib.h>
-#include <sstream>
-#include <string.h>
-#include <math.h> /* round, floor, ceil, trunc */
-#include <stdio.h>
-#include "loadingGif.h"
-#include "iconImg.h"
 #include <DHT.h>
+#include <math.h>
+#include <Ticker.h>
+#include <EEPROM.h>
+#include <U8g2lib.h>
+#include <ESP8266WiFi.h>
 #include "LogansGreatButton.h"
+#include <ESP8266WebServer.h>
+#include "iconImg.h"
+#include "loadingGif.h"
 //#define DHTTYPE DHT11;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 // 图标数组
 const unsigned char *const iconList[] U8X8_PROGMEM = {active, cpu, box, database, drive, global, nodejs, server, terminal, thermomete, wifi, link, wifi2};
 // 加载动画数组 loading array
 const unsigned char *const gifList[] U8X8_PROGMEM = {load1, load2, load3, load4, load5, load6, load7, load8, load9, load10, load11, load12, load13, load14, load15, load16, load17, load18, load19, load20, load21, load22, load23, load24, load25, load26, load27, load28};
-Ticker isCON;                           // 检测连接定时器
-Ticker gifTicker;                       // 更新loading gif 数组索引定时器
-Ticker getServerInfoTicker;             // 连接成功后定时向服务器获取请求
-Ticker swInfoTimer;                     // 切换信息显示帧
-Ticker SPDAdjustTimer;                  // 长按超时定时器
-WiFiClient client;                      // Tcp客户端
-String infoArr[3][6];                   // 存放从服务器获取到的数据
-const char *SSID = "OpenWrt";           // WiFi名 SSID
-const char *SSIDPW = "";                // WiFi密码,没有留空 SSISPASSWORD
-const String ServerIP = "192.168.10.9"; // 服务器地址
-const int ServerPort = 553;             // 服务器端口
-byte CONStatusCode = 0;                 // 状态码
-byte CONTimer = 24;                     // *连接计时器
-byte gifIndex = 0;                      // *loading gif帧数组索引
+Ticker isCON;               // 检测连接定时器
+Ticker gifTicker;           // 更新loading gif 数组索引定时器
+Ticker getServerInfoTicker; // 连接成功后定时向服务器获取请求
+Ticker swInfoTimer;         // 切换信息显示帧
+Ticker SPDAdjustTimer;      // 长按超时定时器
+WiFiClient client;          // Tcp客户端
+ESP8266WebServer webserver(80);
+String infoArr[3][6];   // 存放从服务器获取到的数据
+byte CONStatusCode = 0; // 状态码
+byte CONTimer = 24;     // *连接计时器
+byte gifIndex = 0;      // *loading gif帧数组索引
 bool loadGIndxFstTimer = 1;
 byte ServerLoading = 1; // *服务器是否加载中flag
 byte infoIndex = 0;     // *信息显示帧 (轮播)
@@ -38,18 +34,29 @@ const byte DTHPin = 14; // 温湿度传感器引脚
 const byte ledPin = 2;  // led指示灯引脚
 //DHT dth(DTHPin, DHTTYPE);
 LogansGreatButton btn1(btn1Pin);
+struct config_type //该结构体通过savaConfig和loadConfig函数读取或保存内容到EEPROM
+{
+    char SSID[32];
+    char SSIDPW[64];
+    char serverIP[16];
+    long serverPort;
+    char zhixinKey[24];
+    char zhixinValue[35];
+} congif = {"ssid", "ssidpw", "serverIP", 0, "zhixinKey", "zhixinValue"};
+config_type config;
 void setup()
 {
     Serial.begin(9600);
     pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(SSID, SSIDPW);
+    digitalWrite(ledPin, HIGH);         // 关闭LED指示灯
+    WiFi.softAP("EPS8266", "12345678"); //esp8266ap配置
+    webserver.begin();                  // 网页服务器
+    webserverInit();
     u8g2.begin();
     isCON.once_ms(200, isCONFun);                  // 定时检测连接状态
     getServerInfoTicker.attach(2, getServaerInfo); // 定时获取服务器信息
     swInfoTimer.once(infoSwitchTime, infoIndexSw); // 开启切换信息显示帧
-    btn1Init();
+    btn1Init();                                    // 按钮1初始化
 }
 void loop()
 {
@@ -61,7 +68,8 @@ void loop()
             if (CONTimer >= 50) // 10 秒超时重连
             {
                 WiFi.disconnect();
-                WiFi.begin(SSID, SSIDPW); // 尝试重新连接WiFi
+                loadConfig();                           // 先从EEPROM中更新一下config结构体
+                WiFi.begin(config.SSID, config.SSIDPW); // 尝试重新连接WiFi
                 CONTimer = 0;
             };
             break;
@@ -69,13 +77,14 @@ void loop()
             if (CONTimer >= 50) // 5 秒超时重连服务器
             {
                 client.stop();
-                client.connect(ServerIP, ServerPort);
+                client.connect(config.serverIP, config.serverPort);
                 CONTimer = 0;
             };
         }
     }
     OLEDDraw();
     btn1.LOOPButtonController();
+    webserver.handleClient();
 }
 // 定时检测客户端和服务器的连接状态并更新连接状态码,以及重连后的重置重连中的操作
 void isCONFun()
@@ -397,6 +406,7 @@ void btn1Handler()
         break;
     case _HoldRelease:              // 按住弹起
         digitalWrite(ledPin, HIGH); // 关闭LED指示灯
+        WiFi.printDiag(Serial);
         switch (CONStatusCode)
         {
         case 4: //状态码4(即进图调速模式)情况下单击将退出调速模式
@@ -406,11 +416,12 @@ void btn1Handler()
         case 3:                                //状态码23长按进入将调节切换帧显示速度模式
             lastCONStatusCode = CONStatusCode; // 保存当前屏幕显示模式
             CONStatusCode = 4;
-            SPDAdjustTimer.once(999, closeSPDCtrl, lastCONStatusCode);
+            SPDAdjustTimer.once(5, closeSPDCtrl, lastCONStatusCode);
             break;
         }
         break;
-    case _HoldContinuous: // 按住
+    case _HoldContinuous:        // 按住
+        SPDAdjustTimer.detach(); // 防止超时
         static long lastTime = millis();
         long nowTime = millis();
         if (nowTime - lastTime >= 200)
@@ -431,4 +442,88 @@ void closeSPDCtrl(byte lastCONStatusCode)
 // 气象站
 void CloudStation()
 {
+}
+void webserverInit()
+{
+    webserver.on("/", HTTP_GET, webRootHandle);
+    webserver.on("/WiFi", HTTP_POST, webWiFiHandle);
+    webserver.on("/ZhiXin", HTTP_POST, webZhixinHandle);
+    webserver.on("/Server", HTTP_POST, webServerHandle);
+}
+void webRootHandle()
+{
+    loadConfig();
+    String currentSSID = config.SSID, currentSSIDPW = config.SSIDPW, currentServerIP = config.serverIP, currentServerPort(config.serverPort), currentZhiXinKey = config.zhixinKey, currentZhiXinValue = config.zhixinValue;
+    String webStr = "";
+    webStr += "<!DOCTYPE html><head><meta charset=\"UTF-8\"></head>";
+    webStr += "<body>";
+    webStr += "<h1 style=\"text-align:center\">更新WiFi配置</h1>";
+    webStr += "<form style=\"text-align:center\" action=\"/WiFi\" method=\"POST\">";
+    webStr += "<span>WiFi账号: </span><input type=\"text\" name=\"SSID\">";
+    webStr += "<br><span>WiFi密码: </span><input type=\"text\" name=\"SSIDPW\"><br>";
+    webStr += "<input type=\"submit\" value=\"提交\"></form>";
+    ///////////////////////////////////////////////////////////
+    webStr += "<h1 style=\"text-align:center\">更新服务端配置</h1>";
+    webStr += "<form style=\"text-align:center\" action=\"/Server\" method=\"POST\">";
+    webStr += "<span>Server地址: </span><input type=\"text\" name=\"serverIP\">";
+    webStr += "<br><span>Server端口: </span><input type=\"text\" name=\"serverPort\"><br>";
+    webStr += "<input type=\"submit\" value=\"提交\"></form>";
+    ////////////////////////////////////////////////////////////
+    webStr += "<h1 style=\"text-align:center\">更新知心天气配置</h1>";
+    webStr += "<form style=\"text-align:center\" action=\"/ZhiXin\" method=\"POST\">";
+    webStr += "<span>知心Key: </span><input type=\"text\" name=\"zhixinKey\">";
+    webStr += "<br><span>知心Value: </span><input type=\"text\" name=\"zhixinValue\"><br>";
+    webStr += "<input type=\"submit\" value=\"提交\"></form>";
+    /////////////////////////////////////////////////////////////
+    webStr += "<hr><h2 style=\"text-align:center\">当前配置</h2>";
+    webStr = webStr + "<ul style=\"text-align: center;list-style-type:none;padding-inline-start:0;\">";
+    webStr = webStr + "<li>WiFi账号: " + config.SSID + " | " + "WiFi密码: " + config.SSIDPW + "</ li> ";
+    webStr = webStr + "<li>Server地址: " + config.serverIP + " | " + "Server端口: " + config.serverPort + "</ li> ";
+    webStr = webStr + "<li>知心Key: " + config.zhixinKey + " | " + "知心Value: " + config.zhixinValue + "</ li> ";
+    webStr += "</ul>";
+    webStr += "</body>";
+    webserver.send(200, "text/html", webStr);
+}
+void webWiFiHandle()
+{
+    // 浏览器按下WiFi表单出的按钮发送的/wifi请求
+    // 获取浏览器一同发送的表单属性
+    strcpy(config.SSID, webserver.arg("SSID").c_str());
+    strcpy(config.SSIDPW, webserver.arg("SSIDPW").c_str()); // 更新config
+    // 保存到EEPROM
+    saveConfig();
+    webRootHandle();   // 获取到浏览器发送的请求后返回首页更新
+    WiFi.disconnect(); // 关闭wifi连接,会在loop中重新连接
+}
+void webZhixinHandle()
+{
+}
+void webServerHandle()
+{
+    client.stop();
+    strcpy(config.serverIP, webserver.arg("serverIP").c_str());
+    config.serverPort = webserver.arg("serverPort").toInt(); // 更新config
+    // 保存到EEPROM
+    saveConfig();
+    webRootHandle(); // 获取到浏览器发送的请求后返回首页更新
+}
+void saveConfig()
+{
+    EEPROM.begin(1024);
+    uint8_t *p = (uint8_t *)(&config);
+    for (int i = 0; i < sizeof(config); i++)
+    {
+        EEPROM.write(i, *(p + i));
+    }
+    EEPROM.commit();
+}
+void loadConfig()
+{
+    EEPROM.begin(1024);
+    uint8_t *p = (uint8_t *)(&config);
+    for (int i = 0; i < sizeof(config); i++)
+    {
+        *(p + i) = EEPROM.read(i);
+    }
+    EEPROM.commit();
 }
