@@ -38,49 +38,49 @@ byte CONStatusCode = 0; // 状态码
 byte CONTimer = 24;     // *连接计时器
 byte gifIndex = 0;      // *loading gif帧数组索引
 bool loadGIndxFstTimer = 1;
-bool getWeatherInfoFlag = 0; // 是否请求天气flag
-bool ServerLoading = 1;      // *服务器是否加载中flag
-byte infoIndex = 0;          // *信息显示帧 (轮播)
-const byte btn1Pin = 0;      // 按钮引脚
-const byte DTHPin = 14;      // 温湿度传感器引脚
-const byte ledPin = 2;       // led指示灯引脚
+bool getWeatherInfoFlag = 0;    // 是否请求天气flag
+bool ServerLoading = 1;         // *服务器是否加载中flag
+byte infoIndex = 0;             // *信息显示帧 (控制在oled轮播第几个服务器监控信息项目)
+const byte PROGMEM btn1Pin = 0; // 按钮引脚
+const byte PROGMEM DTHPin = 14; // 温湿度传感器引脚
+const byte PROGMEM ledPin = 2;  // led指示灯引脚
 LogansGreatButton btn1(btn1Pin);
 //该结构体通过savaConfig和loadConfig函数读取或保存内容到EEPROM
 struct config_type
 {
-    char SSID[32];      // station mode WiFi SSID
-    char SSIDPW[64];    // WiFi password
-    char serverIP[16];  // 被监控服务端端 ip地址
-    long serverPort;    // 被监控服务端端 端口
-    char xinzhiKey[24]; // 心知天气秘钥
-    char city[50];      // 城市
-    int infoSwitchTime; //切换间隔时间
+    char SSID[32];       // station mode WiFi SSID
+    char SSIDPW[64];     // WiFi password
+    char serverIP[16];   // 被监控服务端端 ip地址
+    long serverPort;     // 被监控服务端端 端口
+    char xinzhiKey[24];  // 心知天气秘钥
+    char city[50];       // 城市
+    byte infoSwitchTime; //切换间隔时间
 };
 config_type config;
 struct weather_config
 {
     String statusCode;
-    int day0WeatherCode; // 天气码
-    int day1WeatherCode;
-    int day2WeatherCode;
+    byte day0WeatherCode; // 天气码
+    byte day1WeatherCode;
+    byte day2WeatherCode;
     String day0WeatherText; // 天气描述
     String day1WeatherText;
     String day2WeatherText;
-    int day0IndoorHumidity; // 室内实时湿度
-    int day0IndoorDegree;   // 室内实时温度
-    int day0Humidity;       // 室外湿度
-    int day1Humidity;
-    int day2Humidity;
-    int day0Degree; // 室外实时温度
-    int day0High;   // 最高气温
-    int day1High;
-    int day2High;
-    int day0Low; // 最低气温
-    int day1Low;
-    int day2Low;
-    int day0Rain; //降雨概率
-    int day1Rain;
-    int day2Rain;
+    byte day0IndoorHumidity; // 室内实时湿度
+    byte day0IndoorDegree;   // 室内实时温度
+    byte day0Humidity;       // 室外湿度
+    byte day1Humidity;
+    byte day2Humidity;
+    byte day0Degree; // 室外实时温度
+    byte day0High;   // 最高气温
+    byte day1High;
+    byte day2High;
+    byte day0Low; // 最低气温
+    byte day1Low;
+    byte day2Low;
+    byte day0Rain; //降雨概率
+    byte day1Rain;
+    byte day2Rain;
     String lastUpdate1; // 知心天气服务端更新日期
     String lastUpdate2; // 知心天气服务端天气预报更新日期
 };
@@ -248,23 +248,21 @@ void Tcp_Handler(String data)
         ServerLoading = 1;                                                 // 服务器初始化中,切换为服务器加载界面
     else
     {
-        int num = 0;
+        byte num = 0;
         ServerLoading = 0;                                                             // 关闭加载动画
         data = (data.substring(1, data.length() - 1)).substring(0, data.length() - 2); // 去掉首尾字符
         // 计算服务器发送的检测项目个数 ,字符串有几个"\\",就有n+1个项目
-        for (int i = 0; i < data.length() - 1; i++)
+        for (byte i = 0; i < data.length() - 1; i++)
         {
             if (data.charAt(i) == '\\')
                 num++;
         }
         infoItemsNum = num + 1; // 更新服务器发送的项目数量
-        Serial.println(infoItemsNum);
-        /*String infoArr[infoItemsNum + 1][6]; // 存放从服务器获取到的数据*/
         // 处理获取到的字符到信息数组中infoArr
-        for (int i = 0; i < infoItemsNum; i++)
+        for (byte i = 0; i < infoItemsNum; i++)
         {
             tempStr = (getValue(data, '\\', i));
-            for (int j = 0; j < 6; j++)
+            for (byte j = 0; j < 6; j++)
             {
                 infoArr[i][j] = getValue(tempStr, '@', j);
             }
@@ -309,6 +307,8 @@ void getIndoorInfo()
     float tempH, tempT;
     tempH = dht.readHumidity();
     tempT = dht.readTemperature();
+    Serial.println(tempT);
+    Serial.println(tempH);
     isnan(tempH) ? weatherInfo.day0IndoorHumidity = 99 : weatherInfo.day0IndoorHumidity = (int)round(tempH);
     isnan(tempT) ? weatherInfo.day0IndoorDegree = 99 : weatherInfo.day0IndoorDegree = (int)round(tempT);
 }
@@ -316,9 +316,12 @@ void getIndoorInfo()
 // 获取心知天气数据信息
 void getXinzhiInfo()
 {
-    weatherInfo.statusCode = ""; // 心知天气在获取数据成功的状态下不会返回错误码的,程序开始设置一个空字符串,主函数判断状态码的数据长度,以此来判断有没有错误
-    if (weatherNow.update())     // 获取知心的实时天气
+    static byte timerOut = 0; // 当连续5次错误后才进行错误码更新,频繁出现错误界面太影响体验
+    Serial.println(timerOut);
+    if (weatherNow.update()) // 获取知心的实时天气
     {
+        timerOut = 0;
+        weatherInfo.statusCode = ""; // 心知天气在获取数据成功的状态下不会返回错误码的,程序开始设置一个空字符串,主函数判断状态码的数据长度,以此来判断有没有错误
         weatherInfo.day0WeatherText = weatherNow.getWeatherText();
         weatherInfo.day0WeatherCode = weatherNow.getWeatherCode();
         weatherInfo.day0Degree = weatherNow.getDegree();
@@ -326,11 +329,17 @@ void getXinzhiInfo()
     }
     else
     {
-        weatherInfo.statusCode = weatherNow.getServerCode(); //获取错误码
+        if (++timerOut >= 5)
+        {
+            timerOut = 0;
+            weatherInfo.statusCode = weatherNow.getServerCode(); //获取错误码
+        }
         return;
     }
     if (forecast.update()) // 获取知心的天气预报
     {
+        timerOut = 0;
+        weatherInfo.statusCode = "";
         weatherInfo.day0Humidity = forecast.getHumidity(0); // day0湿度
         weatherInfo.day0Low = forecast.getLow(0);           // day0最低气温
         weatherInfo.day0High = forecast.getHigh(0);         // day0最高气温
@@ -353,13 +362,17 @@ void getXinzhiInfo()
     }
     else
     {
-        weatherInfo.statusCode = weatherNow.getServerCode(); //获取错误码
+        if (++timerOut >= 5)
+        {
+            timerOut = 0;
+            weatherInfo.statusCode = weatherNow.getServerCode(); //获取错误码
+        }
         return;
     }
 }
 
 // 未连接服务的加载界面
-void OLEDLoadDraw(const unsigned char *const *gifList, unsigned int gifX, int gifY, const unsigned char *icon, int iconX, int iconY, const char *Heading, int HeadingX, int HeadingY, int tipsX, int tipsY)
+void OLEDLoadDraw(const unsigned char *const *gifList, byte gifX, byte gifY, const unsigned char *icon, byte iconX, byte iconY, const char *Heading, byte HeadingX, byte HeadingY, byte tipsX, byte tipsY)
 {
     u8g2.clearBuffer();
     if (loadGIndxFstTimer) // 开启gif索引定时器，防止在loop中多次开启
@@ -435,7 +448,7 @@ void OLEDInfoDraw()
         u8g2.setFontMode(1);
         // 进度条1
         // 提取服务端列表模式下的第一组数据
-        for (int i = 0; i < 4; i++)
+        for (byte i = 0; i < 4; i++)
         {
             ListInfoArr[i] = getValue(infoArr[infoIndex][1], '#', i);
         }
@@ -501,7 +514,7 @@ void SPDCtrlDraw()
 }
 
 // 获取字符宽度
-int getFontWidth(const uint8_t *font, const char *str)
+byte getFontWidth(const uint8_t *font, const char *str)
 {
     u8g2.setFont(font);
     return u8g2.getUTF8Width(str);
@@ -545,7 +558,6 @@ void btn1Handler()
         break;
     case _HoldRelease:              // 按住弹起
         digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-        WiFi.printDiag(Serial);
         switch (CONStatusCode)
         {
         case 4: //状态码4(即进图调速模式)情况下单击将退出调速模式
@@ -631,7 +643,6 @@ void webserverInit()
 void webRootHandle()
 {
     loadConfig();
-    //String currentSSID = config.SSID, currentSSIDPW = config.SSIDPW, currentServerIP = config.serverIP, currentServerPort(config.serverPort), currenXinZhiKey = config.xinzhiKey, currentCity = config.city;
     String webStr = "";
     webStr += "<!DOCTYPE html><head><meta charset=\"UTF-8\"></head>";
     webStr += "<body>";
