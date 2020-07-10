@@ -1,6 +1,6 @@
 # 过时的文档,待更新
-# 需要配合服务端使用https://github.com/sakura-he/monitor.git (nodejs编写)
-
+# 1.需要配合服务端使用https://github.com/sakura-he/monitor.git (nodejs编写)
+# 2.连接名为OLEDMonitorClient配置的WiFi后进入192.168.4.1进行相关配置
 
 
 # 如何使用
@@ -40,7 +40,7 @@
 | D1(GPIO5) |      | SCL  |
 | D2(GPIO4) |      | SDA  |
 |           |      |      |
-
+# 编译安装
 ## 编译软件ArduinoIDE准备
 
 ###安装Arduino IDE
@@ -59,21 +59,6 @@ https://www.arduino.cc/en/Main/Software
 
 4. 在ArduinoIDE的工具选项卡找到开发板列表,选择合适你的开发板,作者用的淘宝十元包邮的nodeMCU d1-mini,所以选的是WeMos-R1![image-20200614104552825](C:%5CUsers%5Csakura%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5Cimage-20200614104552825.png)
 
-### 按注释修改相应代码
-
-- 从github上克隆客户端(monitorClint)代码到本地,打开文件夹,找到MonitorClint.ino文件,用ArduinoIDE打开
-
-- 修改代码
-
-    ```
-    U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);//默认4引脚 2IC
-    //U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 4, /* dc=*/ 5, /* reset=*/ 3); //使用7个引脚SPI屏幕的取消注释这行并注释掉上一行
-    const char *SSID = "OpenWrt";    // WiFi名 SSID
-    const char *SSIDPW = "";    // WiFi密码,没有留空 SSISPASSWORD
-    const String ServerIP = "192.168.10.59";    // 服务器地址
-    const int ServerPort = 553;    // 服务器端口
-    const long infoSwitchTime = 4000; // 信息轮播时间间隔4秒
-    ```
 
 ### 烧录到ESP8266
 
