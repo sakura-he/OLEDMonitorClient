@@ -18,21 +18,20 @@ const unsigned char *const iconList[] U8X8_PROGMEM = {active, cpu, box, database
 // 加载动画数组 loading array
 const unsigned char *const gifList[] U8X8_PROGMEM = {load1, load2, load3, load4, load5, load6, load7, load8, load9, load10, load11, load12, load13, load14, load15, load16, load17, load18, load19, load20, load21, load22, load23, load24, load25, load26, load27, load28};
 // 天气图标数组
-const unsigned char *const weatherIconList[40] U8X8_PROGMEM = {sunny00, sunny01, sunny02, sunny03, cloudy04, partlyCloudy05, partlyCloudy06, mostlyCloudy07, mostlyCloudy08, overcast09, shower10, thundershower11, thundershowerWithHail12, lightRain13, moderateRain14, heavyRain15, storm16, heavyStorm17, severeStorm18, iceRain19, sleet20, snowFlurry21, lightSnow22, moderateSnow23, heavySnow24, snowstorm25, dust26, sand27, duststorm28, sandstorm29, foggy30, haze31, windy32, blustery33, hurricane34, tropicalStorm35, tornado36, clod37, hot38};
+const unsigned char *const weatherIconList[42] U8X8_PROGMEM = {sunny00, sunny01, sunny02, sunny03, cloudy04, partlyCloudy05, partlyCloudy06, mostlyCloudy07, mostlyCloudy08, overcast09, shower10, thundershower11, thundershowerWithHail12, lightRain13, moderateRain14, heavyRain15, storm16, heavyStorm17, severeStorm18, iceRain19, sleet20, snowFlurry21, lightSnow22, moderateSnow23, heavySnow24, snowstorm25, dust26, sand27, duststorm28, sandstorm29, foggy30, haze31, windy32, blustery33, hurricane34, tropicalStorm35, tornado36, clod37, hot38, light39, night40};
 Ticker isCON;               // 检测连接定时器
 Ticker gifTicker;           // 更新loading gif 数组索引定时器
 Ticker getServerInfoTicker; // 连接成功后定时向服务器获取请求
 Ticker getWeatherInfoTicker;
-Ticker swInfoTimer;        // 切换服务器监控信息显示帧
-Ticker swWeatherInfoTimer; // 切换天气监控信息显示帧
-Ticker SPDAdjustTimer;     // 长按超时定时器
-int weatherInfoIndex = 0;
-WiFiClient client; // 连接监控服务器Tcp客户端
+Ticker swInfoTimer;    // 切换服务器监控信息显示帧
+Ticker SPDAdjustTimer; // 长按超时定时器
+WiFiClient client;     // 连接监控服务器Tcp客户端
 ESP8266WebServer webserver(80);
 WeatherNow weatherNow; // 建立WeatherNow对象用于获取心知天气信息
 Forecast forecast;
 DHT dht(DHTPIN, DHTTYPE);
-String infoArr[50][6];  // 存放从服务器获取到的数据 !will be BUG!
+String infoArr[50][6]; // 存放从服务器获取到的数据 !will be BUG!
+
 byte infoItemsNum;      // 服务获取的项目数量
 byte CONStatusCode = 0; // 状态码
 byte CONTimer = 24;     // *连接计时器
@@ -40,7 +39,8 @@ byte gifIndex = 0;      // *loading gif帧数组索引
 bool loadGIndxFstTimer = 1;
 bool getWeatherInfoFlag = 0;    // 是否请求天气flag
 bool ServerLoading = 1;         // *服务器是否加载中flag
-byte infoIndex = 0;             // *信息显示帧 (控制在oled轮播第几个服务器监控信息项目)
+byte weatherInfoIndex;          // *天气信息显示帧 (控制在oled轮播第天气信息项目)
+byte serverInfoIndex = 0;       // *服务器信息显示帧 (控制在oled轮播第几个服务器监控信息项目)
 const byte PROGMEM btn1Pin = 0; // 按钮引脚
 const byte PROGMEM DTHPin = 14; // 温湿度传感器引脚
 const byte PROGMEM ledPin = 2;  // led指示灯引脚
@@ -60,27 +60,27 @@ config_type config;
 struct weather_config
 {
     String statusCode;
-    byte day0WeatherCode; // 天气码
-    byte day1WeatherCode;
-    byte day2WeatherCode;
-    String day0WeatherText; // 天气描述
-    String day1WeatherText;
-    String day2WeatherText;
-    byte day0IndoorHumidity; // 室内实时湿度
-    byte day0IndoorDegree;   // 室内实时温度
-    byte day0Humidity;       // 室外湿度
-    byte day1Humidity;
-    byte day2Humidity;
-    byte day0Degree; // 室外实时温度
-    byte day0High;   // 最高气温
-    byte day1High;
-    byte day2High;
-    byte day0Low; // 最低气温
-    byte day1Low;
-    byte day2Low;
-    byte day0Rain; //降雨概率
-    byte day1Rain;
-    byte day2Rain;
+
+    String day0WeatherText;    // day0实时天气描述
+    byte day0WeatherCode;      // day0实时天气码
+    byte day0WeatherDayCode;   // day0白天预报天气码
+    byte day0WeatherNightCode; // day0夜晚预报天气码
+    byte day0IndoorHumidity;   // day0室内实时湿度
+    int day0IndoorDegree;      // day0室内实时温度
+    int day0Degree;            // day0室外实时温度
+    int day0High;              // day0最高气温
+    int day0Low;               // day0最低气温
+
+    byte day1WeatherNightCode;
+    byte day1WeatherDayCode;
+    int day1High;
+    int day1Low;
+
+    byte day2WeatherNightCode;
+    byte day2WeatherDayCode;
+    int day2High;
+    int day2Low;
+
     String lastUpdate1; // 知心天气服务端更新日期
     String lastUpdate2; // 知心天气服务端天气预报更新日期
 };
@@ -93,8 +93,8 @@ void setup()
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, HIGH); // 关闭LED指示灯
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("OLEDMonitorClient", "12345678"); //esp8266ap配置
-    webserver.begin();                            // 网页服务器
+    WiFi.softAP("OLEDMonitorClient配置", "12345678"); //esp8266ap配置
+    webserver.begin();                                // 网页服务器
     webserverInit();
     u8g2.begin();
     u8g2.enableUTF8Print();
@@ -294,9 +294,7 @@ void getWeatherInfo()
 {
     getWeatherInfoFlag = 0; //等待5秒后继续请求
     if (CONStatusCode != 3)
-    {
         return; // 没进入天气页面(状态码4)不做处理
-    }
     getXinzhiInfo();
     getIndoorInfo();
 }
@@ -304,19 +302,28 @@ void getWeatherInfo()
 // 获取室内温度信息
 void getIndoorInfo()
 {
+    static byte timerOut = 0;
     float tempH, tempT;
     tempH = dht.readHumidity();
     tempT = dht.readTemperature();
-    Serial.println(tempT);
-    Serial.println(tempH);
-    isnan(tempH) ? weatherInfo.day0IndoorHumidity = 99 : weatherInfo.day0IndoorHumidity = (int)round(tempH);
-    isnan(tempT) ? weatherInfo.day0IndoorDegree = 99 : weatherInfo.day0IndoorDegree = (int)round(tempT);
+    if (isnan(tempH) || isnan(tempH))
+    {
+        if (++timerOut >= 10)
+        {
+            timerOut = 0;
+            weatherInfo.day0IndoorHumidity = 99; // 错误
+            weatherInfo.day0IndoorDegree = 99;   // 错误
+        }
+        return;
+    }
+    weatherInfo.day0IndoorHumidity = (int)round(tempH);
+    weatherInfo.day0IndoorDegree = (int)round(tempT);
 }
 
 // 获取心知天气数据信息
 void getXinzhiInfo()
 {
-    static byte timerOut = 0; // 当连续5次错误后才进行错误码更新,频繁出现错误界面太影响体验
+    static byte timerOut = 0; // 当连续10次错误后才进行错误码更新,频繁出现错误界面太影响体验
     Serial.println(timerOut);
     if (weatherNow.update()) // 获取知心的实时天气
     {
@@ -329,7 +336,7 @@ void getXinzhiInfo()
     }
     else
     {
-        if (++timerOut >= 5)
+        if (++timerOut >= 10)
         {
             timerOut = 0;
             weatherInfo.statusCode = weatherNow.getServerCode(); //获取错误码
@@ -340,29 +347,26 @@ void getXinzhiInfo()
     {
         timerOut = 0;
         weatherInfo.statusCode = "";
-        weatherInfo.day0Humidity = forecast.getHumidity(0); // day0湿度
-        weatherInfo.day0Low = forecast.getLow(0);           // day0最低气温
-        weatherInfo.day0High = forecast.getHigh(0);         // day0最高气温
-        weatherInfo.day0Rain = forecast.getRain(0);         // day0降水概率
+        weatherInfo.day0WeatherNightCode = forecast.getNightCode(0);
+        weatherInfo.day0WeatherDayCode = forecast.getDayCode(0);
+        weatherInfo.day0Low = forecast.getLow(0);   // day0最低气温
+        weatherInfo.day0High = forecast.getHigh(0); // day0最高气温
 
-        weatherInfo.day1WeatherText = forecast.getDayText(1); //day1天气
-        weatherInfo.day1WeatherCode = forecast.getDayCode(1);
-        weatherInfo.day1Rain = forecast.getRain(1);         // day1降水概率
-        weatherInfo.day1Humidity = forecast.getHumidity(1); // day1湿度
-        weatherInfo.day1Low = forecast.getLow(1);           // day1最低气温
-        weatherInfo.day1High = forecast.getHigh(1);         // day1最高气温
+        weatherInfo.day1WeatherNightCode = forecast.getNightCode(1); //day1天气
+        weatherInfo.day1WeatherDayCode = forecast.getDayCode(1);
+        weatherInfo.day1Low = forecast.getLow(1);   // day1最低气温
+        weatherInfo.day1High = forecast.getHigh(1); // day1最高气温
 
-        weatherInfo.day2WeatherText = forecast.getDayText(2);
-        weatherInfo.day2WeatherCode = forecast.getDayCode(2);
-        weatherInfo.day2Rain = forecast.getRain(2);         // 降水概率
-        weatherInfo.day2Humidity = forecast.getHumidity(2); // 湿度
-        weatherInfo.day2Low = forecast.getLow(2);           // 最低气温
-        weatherInfo.day2High = forecast.getHigh(2);         // 最高气温
+        weatherInfo.day2WeatherNightCode = forecast.getNightCode(2);
+        weatherInfo.day2WeatherDayCode = forecast.getDayCode(2);
+        weatherInfo.day2Low = forecast.getLow(2);   // 最低气温
+        weatherInfo.day2High = forecast.getHigh(2); // 最高气温
+
         weatherInfo.lastUpdate2 = weatherNow.getLastUpdate();
     }
     else
     {
-        if (++timerOut >= 5)
+        if (++timerOut >= 10)
         {
             timerOut = 0;
             weatherInfo.statusCode = weatherNow.getServerCode(); //获取错误码
@@ -400,15 +404,14 @@ void gifIndexSw()
 // 系统信息绘制
 void OLEDInfoDraw()
 {
-    // value all
     u8g2.clearBuffer();
-    const String view = infoArr[infoIndex][0],
-                 option = infoArr[infoIndex][1],
-                 key = infoArr[infoIndex][2],
-                 value = infoArr[infoIndex][3],
-                 unit = infoArr[infoIndex][4],
-                 all = infoArr[infoIndex][5];
-
+    // 提取数组的值
+    const String view = infoArr[serverInfoIndex][0],
+                 option = infoArr[serverInfoIndex][1],
+                 key = infoArr[serverInfoIndex][2],
+                 value = infoArr[serverInfoIndex][3],
+                 unit = infoArr[serverInfoIndex][4],
+                 all = infoArr[serverInfoIndex][5];
     float pl = value.toFloat() / all.toFloat(); // 已用占比
     String ListInfoArr[4];
     char pc[3];
@@ -450,9 +453,8 @@ void OLEDInfoDraw()
         // 提取服务端列表模式下的第一组数据
         for (byte i = 0; i < 4; i++)
         {
-            ListInfoArr[i] = getValue(infoArr[infoIndex][1], '#', i);
+            ListInfoArr[i] = getValue(infoArr[serverInfoIndex][1], '#', i);
         }
-
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
         u8g2.drawStr(0, 14, ListInfoArr[0].c_str()); //key
         u8g2.setFont(u8g2_font_t0_14b_mr);
@@ -482,22 +484,23 @@ void OLEDInfoDraw()
 // 切换信息显示帧
 void infoIndexSw()
 {
-    if (++infoIndex >= infoItemsNum)
-        infoIndex = 0;
+    if (++serverInfoIndex >= infoItemsNum) // 切换服务器信息帧
+        serverInfoIndex = 0;
+    if (++weatherInfoIndex >= 3) // 切换天气信息帧
+        weatherInfoIndex = 0;
     swInfoTimer.once(config.infoSwitchTime, infoIndexSw);
 }
 
 // 绘制切换显示帧调速界面
 void SPDCtrlDraw()
 {
-    // 大字样式
     char str[4];
     itoa(config.infoSwitchTime, str, 10);
     u8g2.clearBuffer();
     u8g2.drawRFrame(0, 0, 128, 64, 0);
     u8g2.setFontMode(1); // 文字透明
     u8g2.setFont(u8g2_font_lastapprenticebold_tr);
-    u8g2.drawStr((128 - u8g2.getUTF8Width("Switch Speed12345")) / 2, 17, "Switch Speed12345"); // heading
+    u8g2.drawStr((128 - u8g2.getUTF8Width("Switch Speed")) / 2, 17, "Switch Speed"); // 标题
     u8g2.setFont(u8g2_font_freedoomr25_tn);
     u8g2.drawStr(128 - u8g2.getUTF8Width(str) - 34, 50, str); // value
     u8g2.drawRBox(96, 36, 32, 12, 0);                         // 单位框
@@ -505,7 +508,7 @@ void SPDCtrlDraw()
     u8g2.setFont(u8g2_font_Pixellari_tf);
     u8g2.drawStr(96 + (32 - u8g2.getUTF8Width("s")) / 2, 50 - 3, "s"); // 单位文字
     u8g2.setDrawColor(1);
-    // 进度条
+    // 百分比进度条
     u8g2.setDrawColor(1);
     u8g2.drawFrame(0, 52, 128, 12);
     u8g2.drawBox(2, 54, (int(floor(config.infoSwitchTime / float(10) * 124))), 8);
@@ -522,7 +525,6 @@ byte getFontWidth(const uint8_t *font, const char *str)
 
 String pcStr(String fst, String sec)
 {
-
     String tempStr(int(floor(fst.toFloat() / sec.toFloat() * 100))); // 计算百分比
     tempStr += "%";                                                  // 添加百分号
     return tempStr;
@@ -537,7 +539,30 @@ void btn1Handler()
     case _ActionPressed:           // 按下
         digitalWrite(ledPin, LOW); // 开启LED指示灯
         break;
+
     case _PressShortRelease:        //单击弹起
+        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
+        switch (CONStatusCode)
+        {
+        case 4: //状态码4(即进图调速模式)情况下单击将调节切换帧显示速度
+            SPDAdjustTimer.detach();
+            SPDAdjustTimer.once(3, closeSPDCtrl, lastCONStatusCode); //长时间无操作自动退出调速界面
+            config.infoSwitchTime++;
+            if (config.infoSwitchTime >= 11)
+                config.infoSwitchTime = 1;
+            saveConfig(); // 保存到EEPROM
+            break;
+        case 2:
+        case 3: // 2,3情况下将来回切换画面
+            if (++CONStatusCode >= 4)
+                CONStatusCode = 2;
+            serverInfoIndex = 0;
+            weatherInfoIndex = 0; // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
+            break;
+        }
+        break;
+
+    case _PressLongRelease:
         digitalWrite(ledPin, HIGH); // 关闭LED指示灯
         switch (CONStatusCode)
         {
@@ -556,11 +581,12 @@ void btn1Handler()
             break;
         }
         break;
+
     case _HoldRelease:              // 按住弹起
         digitalWrite(ledPin, HIGH); // 关闭LED指示灯
         switch (CONStatusCode)
         {
-        case 4: //状态码4(即进图调速模式)情况下单击将退出调速模式
+        case 4: //状态码4(即进图调速模式)情况下长按将退出调速模式
             closeSPDCtrl(lastCONStatusCode);
             break;
         case 2:
@@ -571,8 +597,9 @@ void btn1Handler()
             break;
         }
         break;
-    case _HoldContinuous:        // 按住
-        SPDAdjustTimer.detach(); // 防止超时
+
+    case _HoldContinuous:        // 按住只是闪灯提醒用户,按住弹起才会执行设置
+        SPDAdjustTimer.detach(); // 调速界面下,在按住按钮时,禁止长时间无操作自动退出功能
         static long lastTime = millis();
         long nowTime = millis();
         if (nowTime - lastTime >= 200)
@@ -587,7 +614,7 @@ void btn1Handler()
 // 长按超时
 void closeSPDCtrl(byte lastCONStatusCode)
 {
-    SPDAdjustTimer.detach();           // 关闭定时器
+    SPDAdjustTimer.detach();           // 关闭长时间无操作自动退出功能定时器
     CONStatusCode = lastCONStatusCode; // 回复上次状态码
 }
 
@@ -624,8 +651,45 @@ void weatherDraw()
             u8g2.drawFrame(50 + (128 - 50 - u8g2.getUTF8Width((emptyStr + weatherInfo.day0Degree).c_str())) / 2 + u8g2.getUTF8Width((emptyStr + weatherInfo.day0Degree).c_str()) + 3, 19, 6, 6); // 摄氏度
             u8g2.drawFrame(50 + (128 - 50 - u8g2.getUTF8Width((emptyStr + weatherInfo.day0Degree).c_str())) / 2 + u8g2.getUTF8Width((emptyStr + weatherInfo.day0Degree).c_str()) + 4, 19 + 1, 4, 4);
             u8g2.drawLine(0, 50, 128, 50);
-        case 1: // 当时概况
-        case 2: //天气预报
+            break;
+        case 1:                                                                              // 当时概况
+            u8g2.drawXBMP(0, 0, 50, 50, weatherIconList[weatherInfo.day0WeatherDayCode]);    // 白天
+            u8g2.drawXBMP(61, 1, 50, 50, weatherIconList[weatherInfo.day0WeatherNightCode]); // 夜晚
+            u8g2.drawXBMP(0, 52, 14, 14, weatherIconList[39]);                               // 白天
+            u8g2.drawXBMP(55, 52, 14, 14, weatherIconList[40]);                              // 夜晚
+            u8g2.drawTriangle(52, 20, 52, 30, 60, 25);                                       // 白天夜晚分隔三角
+            u8g2.drawBox(128 - 17, 0, 17, 64);                                               // 侧栏盒子
+            u8g2.drawLine(0, 50, 100, 50);                                                   // 上下分割
+            u8g2.setFontDirection(1);
+            u8g2.setFontMode(1); // 开启透明模式
+            u8g2.setDrawColor(2);
+            u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
+            u8g2.drawStr(128 - 14, 5, "Today");
+            u8g2.setDrawColor(0);
+            u8g2.drawTriangle(124, 44, 124, 56, 114, 50); // 侧栏箭头
+            u8g2.setDrawColor(1);
+            u8g2.setFontDirection(0);
+            u8g2.drawUTF8(15, 63, ":");
+            u8g2.drawUTF8(68, 63, ":");
+            u8g2.drawUTF8(22, 63, (((String)weatherInfo.day0High) + "°").c_str());
+            u8g2.drawUTF8(76, 63, (((String)weatherInfo.day0Low) + "°").c_str());
+            break;
+        case 2:                                                                            //天气预报
+            u8g2.drawXBMP(0, 0, 50, 50, weatherIconList[weatherInfo.day1WeatherDayCode]);  // 明天
+            u8g2.drawXBMP(61, 1, 50, 50, weatherIconList[weatherInfo.day2WeatherDayCode]); // 后天
+            u8g2.drawBox(50 + 5, 15, 2, 15);                                               // 左右分隔
+            u8g2.drawBox(128 - 17, 0, 17, 64);                                             // 侧栏盒子
+            u8g2.drawLine(0, 50, 100, 50);                                                 // 上下分割
+            u8g2.setFontDirection(1);
+            u8g2.setFontMode(1); // 开启透明模式
+            u8g2.setDrawColor(2);
+            u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
+            u8g2.drawStr(128 - 14, 5, "Day 2&3");
+            u8g2.setDrawColor(0);
+            u8g2.setDrawColor(1);
+            u8g2.setFontDirection(0);
+            u8g2.drawUTF8(0, 63, (emptyStr + "D2: " + weatherInfo.day1High + "°").c_str());
+            u8g2.drawUTF8(110 - u8g2.getUTF8Width((emptyStr + "D3: " + weatherInfo.day2High + "°").c_str()), 63, (emptyStr + "D3: " + weatherInfo.day2High + "°").c_str());
             break;
         }
     }
