@@ -48,13 +48,14 @@ LogansGreatButton btn1(btn1Pin);
 //该结构体通过savaConfig和loadConfig函数读取或保存内容到EEPROM
 struct config_type
 {
-    char SSID[32];       // station mode WiFi SSID
-    char SSIDPW[64];     // WiFi password
-    char serverIP[16];   // 被监控服务端端 ip地址
-    long serverPort;     // 被监控服务端端 端口
-    char xinzhiKey[24];  // 心知天气秘钥
-    char city[50];       // 城市
-    byte infoSwitchTime; //切换间隔时间
+    char SSID[32];           // station mode WiFi SSID
+    char SSIDPW[64];         // WiFi password
+    char serverIP[16];       // 被监控服务端端 ip地址
+    unsigned int serverPort; // 被监控服务端端 端口
+    char xinzhiKey[24];      // 心知天气秘钥
+    char city[50];           // 城市
+    byte infoSwitchTime;     //切换间隔时间
+    bool notFastUsd;
 };
 config_type config;
 struct weather_config
@@ -81,20 +82,34 @@ struct weather_config
     int day2High;
     int day2Low;
 
-    String lastUpdate1; // 知心天气服务端更新日期
-    String lastUpdate2; // 知心天气服务端天气预报更新日期
+    String lastUpdate1; // 心知天气服务端更新日期
+    String lastUpdate2; // 心知天气服务端天气预报更新日期
 };
 weather_config weatherInfo;
 
 void setup()
 {
-    loadConfig(); // 从EEPROM中更新config
     Serial.begin(9600);
+    loadConfig();          // 从EEPROM中更新config
+    if (config.notFastUsd) // 首次使用初始化配置为默认值
+    {
+        Serial.println("首次配置");
+        // 初始化config
+        strcpy(config.city, "Not configured");
+        config.notFastUsd = false;
+        strcpy(config.SSID, "Not configured");
+        strcpy(config.SSIDPW, "Not configured");
+        strcpy(config.serverIP, "000.000.000.000");
+        config.serverPort = 0;
+        config.infoSwitchTime = 5;
+        strcpy(config.xinzhiKey, "Not configured");
+        saveConfig();
+    }
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, HIGH); // 关闭LED指示灯
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("OLEDMonitorClient配置", "12345678"); //esp8266ap配置
-    webserver.begin();                                // 网页服务器
+    WiFi.softAP("OLEDMonitorClient", "12345678"); //esp8266ap配置
+    webserver.begin();                            // 网页服务器
     webserverInit();
     u8g2.begin();
     u8g2.enableUTF8Print();
@@ -325,7 +340,7 @@ void getXinzhiInfo()
 {
     static byte timerOut = 0; // 当连续10次错误后才进行错误码更新,频繁出现错误界面太影响体验
     Serial.println(timerOut);
-    if (weatherNow.update()) // 获取知心的实时天气
+    if (weatherNow.update()) // 获取心知的实时天气
     {
         timerOut = 0;
         weatherInfo.statusCode = ""; // 心知天气在获取数据成功的状态下不会返回错误码的,程序开始设置一个空字符串,主函数判断状态码的数据长度,以此来判断有没有错误
@@ -343,7 +358,7 @@ void getXinzhiInfo()
         }
         return;
     }
-    if (forecast.update()) // 获取知心的天气预报
+    if (forecast.update()) // 获取心知的天气预报
     {
         timerOut = 0;
         weatherInfo.statusCode = "";
@@ -722,7 +737,7 @@ void webRootHandle()
     webStr += "<br><ssssspan>Server端口: </span><input type=\"text\" name=\"serverPort\"><br>";
     webStr += "<input type=\"submit\" value=\"提交\"></form>";
     ////////////////////////////////////////////////////////////
-    webStr += "<h2 style=\"text-align:center\">-更新知心天气配置-</h2>";
+    webStr += "<h2 style=\"text-align:center\">-更新心知天气配置-</h2>";
     webStr += "<form style=\"text-align:center\" action=\"/Xinzhi\" method=\"POST\">";
     webStr += "<span>心知天气私钥: </span><input type=\"text\" name=\"xinzhiKey\">";
     webStr += "<br><span>城市(拼音): </span><input type=\"text\" name=\"city\"><br>";
