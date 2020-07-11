@@ -6,7 +6,7 @@
 
 这个项目可以检测电脑主机的详细系统信息,包括但不限于CPU频率,CPU占用率,内存...
 
-服务端用nodejs编写,使用https://systeminformation.io/模块作为获取系统信息的来源,得益于nodejs的跨平台性,以及systeminformation强大的兼容性,理论上可以在Linux, macOS, Windows, FreeBSD, OpenBSD, NetBSD ,SunOS 上使用.
+服务端用nodejs编写,使用https://systeminformation.io/ 模块作为获取系统信息的来源,得益于nodejs的跨平台性,以及systeminformation强大的兼容性,理论上可以在Linux, macOS, Windows, FreeBSD, OpenBSD, NetBSD ,SunOS 上使用.
 
 - [x] 监控主机信息
 - [x] 监控天气信息(气象站)
