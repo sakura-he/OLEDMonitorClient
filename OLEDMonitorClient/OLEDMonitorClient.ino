@@ -771,7 +771,7 @@ void webXinzhiHandle()
     strcpy(config.city, webserver.arg("city").c_str()); // 更新config
     weatherNow.config(config.xinzhiKey, config.city, "c");
     forecast.config(config.xinzhiKey, config.city, "c");
-    //saveConfig();
+    saveConfig();
     webRootHandle(); // 获取到浏览器发送的请求后返回首页更新
 }
 
