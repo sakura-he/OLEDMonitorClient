@@ -26,7 +26,7 @@
 
 ![ConnectionDiagram](README.assets/ConnectionDiagram.png)
 
-**3.刷入已发行的.bin二进制文件https://github.com/sakura-he/OLEDMonitorClient/releases **
+**3.刷入已发行的.bin二进制文件https://github.com/sakura-he/OLEDMonitorClient/releases**
 
 ## 使用
 
