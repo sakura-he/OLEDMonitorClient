@@ -26,7 +26,7 @@
 
 ![ConnectionDiagram](README.assets/ConnectionDiagram.png)
 
-**3.刷入已发行的.bin二进制文件https://github.com/sakura-he/OLEDMonitorClient/releases**
+**3.使用乐鑫flash_download_tool工具刷入已发行的.bin二进制文件https://github.com/sakura-he/OLEDMonitorClient/releases![downloadFlashTool](README.assets/downloadFlashTool.png)**
 
 ## 使用
 
@@ -63,4 +63,3 @@
 - [ ] 网页配置界面优化
 
 - [ ] 加入HomeKit
-
