@@ -23,9 +23,9 @@ Ticker isCON;               // 检测连接定时器
 Ticker gifTicker;           // 更新loading gif 数组索引定时器
 Ticker getServerInfoTicker; // 连接成功后定时向服务器获取请求
 Ticker getWeatherInfoTicker;
-Ticker swInfoTimer;    // 切换服务器监控信息显示帧
-Ticker SPDAdjustTimer; // 长按超时定时器
-WiFiClient client;     // 连接监控服务器Tcp客户端
+Ticker swInfoTimer;  // 切换服务器监控信息显示帧
+Ticker settingTimer; // 长按超时定时器
+WiFiClient client;   // 连接监控服务器Tcp客户端
 ESP8266WebServer webserver(80);
 WeatherNow weatherNow; // 建立WeatherNow对象用于获取心知天气信息
 Forecast forecast;
@@ -41,6 +41,7 @@ bool getWeatherInfoFlag = 0;    // 是否请求天气flag
 bool ServerLoading = 1;         // *服务器是否加载中flag
 byte weatherInfoIndex;          // *天气信息显示帧 (控制在oled轮播第天气信息项目)
 byte serverInfoIndex = 0;       // *服务器信息显示帧 (控制在oled轮播第几个服务器监控信息项目)
+byte settingItems = 1;          // 当前设置项目值(在设置界面显示第几个项目值)
 const byte PROGMEM btn1Pin = 0; // 按钮引脚
 const byte PROGMEM DTHPin = 14; // 温湿度传感器引脚
 const byte PROGMEM ledPin = 2;  // led指示灯引脚
@@ -55,7 +56,8 @@ struct config_type
     char xinzhiKey[24];      // 心知天气秘钥
     char city[50];           // 城市
     byte infoSwitchTime;     //切换间隔时间
-    bool notFastUsd;
+    bool fastUsd;            // 第一次使用?
+    int contrast;           // OLED亮度(对比度)
 };
 config_type config;
 struct weather_config
@@ -90,19 +92,20 @@ weather_config weatherInfo;
 void setup()
 {
     Serial.begin(9600);
-    loadConfig();          // 从EEPROM中更新config
-    if (config.notFastUsd) // 首次使用初始化配置为默认值
+    loadConfig();       // 从EEPROM中更新config
+    if (config.fastUsd) // 首次使用初始化配置为默认值
     {
         Serial.println("首次配置");
         // 初始化config
         strcpy(config.city, "Not configured");
-        config.notFastUsd = false;
+        config.fastUsd = false;
         strcpy(config.SSID, "Not configured");
         strcpy(config.SSIDPW, "Not configured");
         strcpy(config.serverIP, "000.000.000.000");
         config.serverPort = 0;
         config.infoSwitchTime = 5;
         strcpy(config.xinzhiKey, "Not configured");
+        config.contrast = 255; // 亮度最亮
         saveConfig();
     }
     pinMode(ledPin, OUTPUT);
@@ -116,8 +119,6 @@ void setup()
     isCON.once_ms(200, isCONFun);                                   // 定时检测连接状态
     getServerInfoTicker.attach(2, getServaerInfo);                  // 定时获取服务器信息
     getWeatherInfoTicker.attach(5, [] { getWeatherInfoFlag = 1; }); // 定时获取服务器信息
-    if (config.infoSwitchTime == 0)                                 // 如果首次使用没有设定切换速度则默认是0
-        config.infoSwitchTime = 5;                                  // 页面内切换默认速度
     weatherNow.config(config.xinzhiKey, config.city, "c");          // 初始化心知天气配置
     forecast.config(config.xinzhiKey, config.city, "c");            // 初始化心知天气配置
     swInfoTimer.once(config.infoSwitchTime, infoIndexSw);           // 开启切换信息显示帧
@@ -151,7 +152,7 @@ void loop()
     OLEDDraw();                  // 屏幕绘制
     btn1.LOOPButtonController(); // 按钮循环检测
     webserver.handleClient();    // ESP8266服务器检测新客户端连接
-    if (getWeatherInfoFlag)
+    if (getWeatherInfoFlag)      // 请求天气数据
         getWeatherInfo();
 }
 
@@ -203,11 +204,13 @@ void btn1Init()
     btn1.onHoldStart(btn1Handler);         // 开始进入长按保持状态
     btn1.onHoldContinuous(btn1Handler);    // 长按保持状态
     btn1.onHoldRelease(btn1Handler);       // 长按保持状态弹起
+    btn1.onMultiClick(btn1Handler);        // 多击
 }
 
 // 根据状态码来更绘制屏幕显示内容
 void OLEDDraw()
 {
+    u8g2.setContrast(config.contrast);
     switch (CONStatusCode)
     {
     case 0: // WiFi未连接显式内容
@@ -233,7 +236,7 @@ void OLEDDraw()
         weatherDraw();
         break;
     case 4:
-        SPDCtrlDraw();
+        settingDraw();
     }
 }
 
@@ -307,11 +310,11 @@ String getValue(String data, char separator, int index)
 //获取天气信息
 void getWeatherInfo()
 {
-    getWeatherInfoFlag = 0; //等待5秒后继续请求
     if (CONStatusCode != 3)
         return; // 没进入天气页面(状态码4)不做处理
     getXinzhiInfo();
     getIndoorInfo();
+    getWeatherInfoFlag = 0; //等待5秒后继续请求
 }
 
 // 获取室内温度信息
@@ -507,30 +510,41 @@ void infoIndexSw()
 }
 
 // 绘制切换显示帧调速界面
-void SPDCtrlDraw()
+void settingDraw()
 {
-    char str[4];
-    itoa(config.infoSwitchTime, str, 10);
     u8g2.clearBuffer();
+    switch (settingItems)
+    {
+    case 1: // 主界面各项信息切换
+        settingItemsDraw("Switch Speed", config.infoSwitchTime, 10, "s");
+        break;
+    case 2:
+        settingItemsDraw("Bright Lv", config.contrast, 255, "Lv");
+        break;
+    }
+    u8g2.sendBuffer();
+}
+void settingItemsDraw(const char *head, byte value, byte maxValue, const char *unit)
+{
+    char str[4];          // 创建一个3个字符的空字符串,来保存转换后的传递的value值
+    itoa(value, str, 10); // 转换传递的值为char
     u8g2.drawRFrame(0, 0, 128, 64, 0);
     u8g2.setFontMode(1); // 文字透明
     u8g2.setFont(u8g2_font_lastapprenticebold_tr);
-    u8g2.drawStr((128 - u8g2.getUTF8Width("Switch Speed")) / 2, 17, "Switch Speed"); // 标题
+    u8g2.drawStr((128 - u8g2.getUTF8Width(head)) / 2, 17, head); // 标题
     u8g2.setFont(u8g2_font_freedoomr25_tn);
     u8g2.drawStr(128 - u8g2.getUTF8Width(str) - 34, 50, str); // value
     u8g2.drawRBox(96, 36, 32, 12, 0);                         // 单位框
     u8g2.setDrawColor(0);                                     // 文字反色
     u8g2.setFont(u8g2_font_Pixellari_tf);
-    u8g2.drawStr(96 + (32 - u8g2.getUTF8Width("s")) / 2, 50 - 3, "s"); // 单位文字
+    u8g2.drawStr(96 + (32 - u8g2.getUTF8Width(unit)) / 2, 50 - 3, unit); // 单位文字
     u8g2.setDrawColor(1);
     // 百分比进度条
     u8g2.setDrawColor(1);
     u8g2.drawFrame(0, 52, 128, 12);
-    u8g2.drawBox(2, 54, (int(floor(config.infoSwitchTime / float(10) * 124))), 8);
+    u8g2.drawBox(2, 54, (int(floor(value / float(maxValue) * 124))), 8);
     u8g2.setFontMode(0);
-    u8g2.sendBuffer();
 }
-
 // 获取字符宽度
 byte getFontWidth(const uint8_t *font, const char *str)
 {
@@ -549,26 +563,75 @@ String pcStr(String fst, String sec)
 void btn1Handler()
 {
     static byte lastCONStatusCode;
+    static long lastTime = millis();
+    long nowTime = millis();
     switch (btn1.getClickType()) //判断按钮事件类型,进行不同的处理
     {
-    case _ActionPressed:           // 按下
+        // 按下
+    case _ActionPressed:
         digitalWrite(ledPin, LOW); // 开启LED指示灯
         break;
-
-    case _PressShortRelease:        //单击弹起
+        //单击
+    case _PressShortRelease:
         digitalWrite(ledPin, HIGH); // 关闭LED指示灯
         switch (CONStatusCode)
         {
-        case 4: //状态码4(即进图调速模式)情况下单击将调节切换帧显示速度
-            SPDAdjustTimer.detach();
-            SPDAdjustTimer.once(3, closeSPDCtrl, lastCONStatusCode); //长时间无操作自动退出调速界面
-            config.infoSwitchTime++;
-            if (config.infoSwitchTime >= 11)
-                config.infoSwitchTime = 1;
+        case 4:                                                    //在状态码4(设置界面)下调节各项设置的数值
+            settingTimer.detach();                                 // 重置设置超时自动退出定时器(按下按钮重新计时)
+            settingTimer.once(3, closeSetting, lastCONStatusCode); //长时间无操作自动退出调速界面
+            switch (settingItems)
+            {
+            case 1: // 调速界面下调节数值
+                if (++config.infoSwitchTime >= 11)
+                    config.infoSwitchTime = 0;
+                break;
+            case 2: // 亮度调节界面下调节数值(3级亮度调节)
+                config.contrast += 127;
+                if (config.contrast >= 256)
+                {
+                    config.contrast = 1;
+                }
+                break;
+            }
             saveConfig(); // 保存到EEPROM
             break;
         case 2:
-        case 3: // 2,3情况下将来回切换画面
+        case 3: // 2,3(即天气或服务器监控界面)下来回切花画面
+            if (++CONStatusCode >= 4)
+                CONStatusCode = 2;
+            serverInfoIndex = 0;
+            weatherInfoIndex = 0;   // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
+            getWeatherInfoFlag = 1; // 立即请求天气数据
+            break;
+        }
+        break;
+        // 长按(和上面单击按钮作用一样)
+    case _PressLongRelease:
+        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
+        switch (CONStatusCode)
+        {
+        case 4:                                                    //在状态码4(设置界面)下调节各项设置的数值
+            settingTimer.detach();                                 // 重置设置超时自动退出定时器(按下按钮重新计时)
+            settingTimer.once(3, closeSetting, lastCONStatusCode); //长时间无操作自动退出调速界面
+            switch (settingItems)
+            {
+            case 1: // 调速界面下调节数值
+                if (++config.infoSwitchTime >= 11)
+                    config.infoSwitchTime = 1;
+                break;
+            case 2: // 亮度调节界面下调节数值(3级亮度调节)
+                config.contrast += 127;
+                if (config.contrast >= 256)
+                {
+                    config.contrast = 1;
+                    Serial.println(config.contrast);
+                }
+                break;
+            }
+            saveConfig(); // 保存到EEPROM
+            break;
+        case 2:
+        case 3: // 2,3(即天气或服务器监控界面)下来回切花画面
             if (++CONStatusCode >= 4)
                 CONStatusCode = 2;
             serverInfoIndex = 0;
@@ -576,61 +639,68 @@ void btn1Handler()
             break;
         }
         break;
-
-    case _PressLongRelease:
+        // 按住结束 进入或退出设置
+    case _HoldRelease:
         digitalWrite(ledPin, HIGH); // 关闭LED指示灯
         switch (CONStatusCode)
         {
-        case 4: //状态码4(即进图调速模式)情况下单击将调节切换帧显示速度
-            SPDAdjustTimer.detach();
-            SPDAdjustTimer.once(3, closeSPDCtrl, lastCONStatusCode);
-            config.infoSwitchTime++;
-            if (config.infoSwitchTime >= 11)
-                config.infoSwitchTime = 1;
-            saveConfig(); // 保存到EEPROM
+        case 4: // 当前为状态码4(设置界面)情况下长按将退出设置界面,回到进入设置前的界面
+            closeSetting(lastCONStatusCode);
             break;
         case 2:
-        case 3: // 2,3情况下将来回切换画面
-            if (++CONStatusCode >= 4)
-                CONStatusCode = 2;
-            break;
-        }
-        break;
-
-    case _HoldRelease:              // 按住弹起
-        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-        switch (CONStatusCode)
-        {
-        case 4: //状态码4(即进图调速模式)情况下长按将退出调速模式
-            closeSPDCtrl(lastCONStatusCode);
-            break;
-        case 2:
-        case 3:                                //状态码23长按进入将调节切换帧显示速度模式
+        case 3:                                //状态码23长按进入设置界面
             lastCONStatusCode = CONStatusCode; // 保存当前屏幕显示模式
             CONStatusCode = 4;
-            SPDAdjustTimer.once(5, closeSPDCtrl, lastCONStatusCode);
+            settingTimer.once(5, closeSetting, lastCONStatusCode);
             break;
         }
         break;
-
-    case _HoldContinuous:        // 按住只是闪灯提醒用户,按住弹起才会执行设置
-        SPDAdjustTimer.detach(); // 调速界面下,在按住按钮时,禁止长时间无操作自动退出功能
-        static long lastTime = millis();
-        long nowTime = millis();
+        // 按住只是闪灯提醒用户,按住弹起才会执行设置
+    case _HoldContinuous:
+        settingTimer.detach(); // 设置界面下,在按住按钮时,禁止长时间无操作自动退出功能
         if (nowTime - lastTime >= 200)
         {
             digitalWrite(ledPin, !digitalRead(ledPin)); // 闪烁led灯
             lastTime = millis();
         }
         break;
+        // 按钮多击
+    case _MultiClicks:
+        // 先灭灯
+        digitalWrite(ledPin, HIGH);                            // 关闭LED指示灯
+        settingTimer.detach();                                 // 重置设置超时自动退出定时器(按下按钮重新计时)
+        settingTimer.once(3, closeSetting, lastCONStatusCode); //长时间无操作自动退出调速界面
+        switch (btn1.getNumberOfMultiClicks())
+        {
+        case 2: //双击
+            //判断所在界面,是主界面还是设置界面
+            switch (CONStatusCode)
+            {
+            case 2:
+            case 3:
+                // 暂停画面播放
+                Serial.println("主界面双击");
+                break;
+            case 4: // 在设置界面双击切换设置项
+                if (++settingItems >= 3)
+                    settingItems = 1;
+                break;
+            }
+            break;
+            // 其他击无操作
+        default:
+            break;
+        }
+        break;
     }
 }
 
 // 长按超时
-void closeSPDCtrl(byte lastCONStatusCode)
+void closeSetting(byte lastCONStatusCode)
 {
-    SPDAdjustTimer.detach();           // 关闭长时间无操作自动退出功能定时器
+    settingTimer.detach();             // 关闭长时间无操作自动退出功能定时器
     CONStatusCode = lastCONStatusCode; // 回复上次状态码
+    settingItems = 1;                  // 重置设置项目为第一个
 }
 
 // 绘制天气界面
