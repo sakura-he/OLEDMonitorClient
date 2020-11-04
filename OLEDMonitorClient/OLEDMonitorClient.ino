@@ -461,15 +461,14 @@ void serverInfoDraw()
                  unit = infoArr[serverInfoIndex][4],
                  all = infoArr[serverInfoIndex][5];
     float pl = value.toFloat() / all.toFloat(); // 已用占比
-    String ListInfoArr[4];
+    //String splitMonitorItem[4];
     char pc[3];
     itoa(int(pl * 100), pc, 10);
     String pcstr(pc);
     pcstr.concat("%");
     // 视图模式
-    switch (view.toInt())
+    if (view.toInt() == 1)
     {
-    case 1:                  // 大字样式
         u8g2.setFontMode(1); // 文字透明
         u8g2.setFont(u8g2_font_lastapprenticebold_tr);
         u8g2.drawStr((128 - u8g2.getUTF8Width(key.c_str())) / 2, 17, key.c_str()); // key
@@ -494,21 +493,23 @@ void serverInfoDraw()
         u8g2.drawFrame(0, 52, 128, 12); //
         u8g2.drawBox(0 + 2, 52 + 2, (int(floor(value.toFloat() / all.toFloat() * 124))), 8);
         u8g2.setFontMode(0);
-        break;
-    case 2: // 视图2样式 进度条样式
+    }
+    else if (view.toInt() == 2)
+    {
+        String splitMonitorItem[4]; // 存放提取到的复合检测项目中的项目
         u8g2.setFontMode(1);
         // 进度条1
         // 提取服务端列表模式下的第一组数据
         for (byte i = 0; i < 4; i++)
-            ListInfoArr[i] = getValue(infoArr[serverInfoIndex][1], '#', i);
+            splitMonitorItem[i] = getValue(infoArr[serverInfoIndex][1], '#', i);
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
-        u8g2.drawStr(0, 14, ListInfoArr[0].c_str()); //key
+        u8g2.drawStr(0, 14, splitMonitorItem[0].c_str()); //key
         u8g2.setFont(u8g2_font_t0_14b_mr);
-        u8g2.drawStr(128 - u8g2.getUTF8Width((ListInfoArr[1] + "|" + ListInfoArr[3] + ListInfoArr[2]).c_str()), 14, (ListInfoArr[1] + "|" + ListInfoArr[3] + ListInfoArr[2]).c_str()); //value/all unit
-        u8g2.drawRFrame(0, 16, 128, 16, 0);                                                                                                                                            // 百分比进度条外框
-        u8g2.drawRBox(2, 18, int(floor(ListInfoArr[1].toFloat() / ListInfoArr[3].toFloat() * 124)), 12, 0);                                                                            //百分比进度条 两侧各空白2像素
-        u8g2.setDrawColor(2);                                                                                                                                                          // 文字反色
-        u8g2.drawStr(2 + (124 - u8g2.getUTF8Width(pcStr(ListInfoArr[1], ListInfoArr[3]).c_str())) / 2, 28, pcStr(ListInfoArr[1], ListInfoArr[3]).c_str());                             // 百分比文字
+        u8g2.drawStr(128 - u8g2.getUTF8Width((splitMonitorItem[1] + "|" + splitMonitorItem[3] + splitMonitorItem[2]).c_str()), 14, (splitMonitorItem[1] + "|" + splitMonitorItem[3] + splitMonitorItem[2]).c_str()); //value/all unit
+        u8g2.drawRFrame(0, 16, 128, 16, 0);                                                                                                                                                                          // 百分比进度条外框
+        u8g2.drawRBox(2, 18, int(floor(splitMonitorItem[1].toFloat() / splitMonitorItem[3].toFloat() * 124)), 12, 0);                                                                                                //百分比进度条 两侧各空白2像素
+        u8g2.setDrawColor(2);                                                                                                                                                                                        // 文字反色
+        u8g2.drawStr(2 + (124 - u8g2.getUTF8Width(pcStr(splitMonitorItem[1], splitMonitorItem[3]).c_str())) / 2, 28, pcStr(splitMonitorItem[1], splitMonitorItem[3]).c_str());                                       // 百分比文字
         u8g2.setDrawColor(1);
         // 进度条2
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
@@ -517,12 +518,21 @@ void serverInfoDraw()
         u8g2.drawStr(128 - u8g2.getUTF8Width((value + "|" + all + unit).c_str()), 46, (value + "|" + all + unit).c_str()); //value/all unit
         u8g2.drawRFrame(0, 48, 128, 16, 0);                                                                                // 百分比框
         u8g2.drawRBox(2, 50, int(floor(value.toFloat() / all.toFloat() * 124)), 12, 0);                                    // 百分比
-        u8g2.drawRBox(2, 18, int(floor(ListInfoArr[1].toFloat() / ListInfoArr[3].toFloat() * 124)), 12, 0);                //百分比进度条 两侧各空白2像素
+        u8g2.drawRBox(2, 18, int(floor(splitMonitorItem[1].toFloat() / splitMonitorItem[3].toFloat() * 124)), 12, 0);      //百分比进度条 两侧各空白2像素
         u8g2.setDrawColor(2);                                                                                              // 文字反色
         u8g2.drawStr(2 + (124 - u8g2.getUTF8Width(pcStr(value, all).c_str())) / 2, 60, pcStr(value, all).c_str());         // 百分比文字
         u8g2.setDrawColor(1);
         u8g2.setFontMode(0);
         break;
+    }
+    else if (view.toInt() == 3)
+    {
+        String splitMonitorItems[3][4];
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 4; j++)
+            {
+                splitMonitorItems[i][j] = getValue(infoArr[serverInfoIndex][1], '#', i * 4 + j); // 从复合数据的值中每四个提取
+            }
     }
     u8g2.sendBuffer();
 }
