@@ -1,4 +1,3 @@
-#include <DHT.h>
 #include <math.h>
 #include <Ticker.h>
 #include <EEPROM.h>
@@ -10,42 +9,48 @@
 #include "iconImg.h"
 #include "loadingGif.h"
 #include "weatherIcon.h"
-#define DHTTYPE DHT11 // 采用DHT11传感器 可以将DHT11字段替换为DHT22来使用DHT22型号传感器
-#define DHTPIN 14     // gpio14引脚,也就是开发板标注d5引脚作为温湿度传感器的输入端
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
+#include <WEMOS_SHT3X.h>
+#define SCL 14
+#define SDA 2
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R2, /* reset=*/U8X8_PIN_NONE, SCL, SDA);
 // 图标数组
 const unsigned char *const iconList[] U8X8_PROGMEM = {active, cpu, box, database, drive, global, nodejs, server, terminal, thermomete, wifi, link, wifi2};
 // 加载动画数组 loading array
 const unsigned char *const gifList[] U8X8_PROGMEM = {load1, load2, load3, load4, load5, load6, load7, load8, load9, load10, load11, load12, load13, load14, load15, load16, load17, load18, load19, load20, load21, load22, load23, load24, load25, load26, load27, load28};
 // 天气图标数组
 const unsigned char *const weatherIconList[42] U8X8_PROGMEM = {sunny00, sunny01, sunny02, sunny03, cloudy04, partlyCloudy05, partlyCloudy06, mostlyCloudy07, mostlyCloudy08, overcast09, shower10, thundershower11, thundershowerWithHail12, lightRain13, moderateRain14, heavyRain15, storm16, heavyStorm17, severeStorm18, iceRain19, sleet20, snowFlurry21, lightSnow22, moderateSnow23, heavySnow24, snowstorm25, dust26, sand27, duststorm28, sandstorm29, foggy30, haze31, windy32, blustery33, hurricane34, tropicalStorm35, tornado36, clod37, hot38, light39, night40};
-Ticker isCON;               // 检测连接定时器
-Ticker gifTicker;           // 更新loading gif 数组索引定时器
-Ticker getServerInfoTicker; // 连接成功后定时向服务器获取请求
-Ticker getWeatherInfoTicker;
-Ticker swInfoTimer;  // 切换服务器监控信息显示帧
-Ticker settingTimer; // 长按超时定时器
-WiFiClient client;   // 连接监控服务器Tcp客户端
+Ticker checkWiFiConnectedTicker;   // 检测连接定时器
+Ticker checkServerConnectedTicker; // 检测与检测服务器连接定时器
+Ticker gifTicker;                  // 更新loading gif 数组索引定时器
+Ticker getServerInfoTicker;        // 连接成功后定时向服务器获取请求
+Ticker getWeatherInfoTicker;       // 获取服务器信息定时器
+Ticker swInfoTimer;                // 切换服务器监控信息显示帧
+WiFiClient client;                 // 连接监控服务器Tcp客户端
+SHT3X sht30(0x44);
 ESP8266WebServer webserver(80);
 WeatherNow weatherNow; // 建立WeatherNow对象用于获取心知天气信息
 Forecast forecast;
-DHT dht(DHTPIN, DHTTYPE);
-String infoArr[50][6]; // 存放从服务器获取到的数据 !will be BUG!
-
-byte infoItemsNum;      // 服务获取的项目数量
-byte CONStatusCode = 0; // 状态码
-byte CONTimer = 24;     // *连接计时器
-byte gifIndex = 0;      // *loading gif帧数组索引
-bool loadGIndxFstTimer = 1;
-bool getWeatherInfoFlag = 0;    // 是否请求天气flag
-bool ServerLoading = 1;         // *服务器是否加载中flag
-byte weatherInfoIndex;          // *天气信息显示帧 (控制在oled轮播第天气信息项目)
-byte serverInfoIndex = 0;       // *服务器信息显示帧 (控制在oled轮播第几个服务器监控信息项目)
-byte settingItems = 1;          // 当前设置项目值(在设置界面显示第几个项目值)
-const byte PROGMEM btn1Pin = 0; // 按钮引脚
-const byte PROGMEM DTHPin = 14; // 温湿度传感器引脚
-const byte PROGMEM ledPin = 2;  // led指示灯引脚
+String infoArr[50][6];            // 存放从服务器获取到的数据 !will be BUG!
+byte infoItemsNum;                // 服务获取的项目数量
+byte WiFiReconnectTimeout = 69;   // WiFi重连定时器
+byte serverReconnectTimeout = 29; // 与检测服务器重连定时器
+byte gifIndex = 0;                // *loading gif帧数组索引
+byte weatherInfoIndex;            // *天气信息显示帧 (控制在oled轮播第天气信息项目)
+byte serverInfoIndex = 0;         // *服务器信息显示帧 (控制在oled轮播第几个服务器监控信息项目)
+byte mainIndex = 1;               // 显示面板项目索引
+byte monitorItem = 1;
+byte settingItem = 1;            // 当前设置项目值(在设置界面显示第几个项目值)
+const byte PROGMEM btn1Pin = 10; // 按钮引脚
+//const byte PROGMEM btn2Pin = ;   // 按钮引脚
+// const byte PROGMEM ledPin = 2;   // led指示灯引脚
 LogansGreatButton btn1(btn1Pin);
+//LogansGreatButton btn2(btn2Pin);
+bool isWiFiConnected = 0; // WiFi状态码
+bool isServerConnected = 0;
+bool loadGIndxFstTimer = 1;
+bool getWeatherInfoFlag = 0; // 请求天气flag
+bool getServerInfoFlag = 0;  // 请求检测服务器信息flag
+bool ServerLoading = 1;      // *服务器是否加载中flag
 //该结构体通过savaConfig和loadConfig函数读取或保存内容到EEPROM
 struct config_type
 {
@@ -57,7 +62,8 @@ struct config_type
     char city[50];           // 城市
     byte infoSwitchTime;     //切换间隔时间
     bool fastUsd;            // 第一次使用?
-    int contrast;           // OLED亮度(对比度)
+    int contrast;            // OLED亮度(对比度)
+    byte lastMonitorItem;    // 上次使用的检测项目
 };
 config_type config;
 struct weather_config
@@ -91,162 +97,135 @@ weather_config weatherInfo;
 
 void setup()
 {
-    Serial.begin(9600);
+    Serial.begin(115200);
     loadConfig();       // 从EEPROM中更新config
     if (config.fastUsd) // 首次使用初始化配置为默认值
     {
-        Serial.println("首次配置");
         // 初始化config
-        strcpy(config.city, "Not configured");
+        strcpy(config.city, "请配置城市(使用拼音或输入'ip'自动定位)");
         config.fastUsd = false;
-        strcpy(config.SSID, "Not configured");
+        strcpy(config.SSID, "请配置WiFi网络");
         strcpy(config.SSIDPW, "Not configured");
-        strcpy(config.serverIP, "000.000.000.000");
+        strcpy(config.serverIP, "请配置服务器ip地址和端口");
         config.serverPort = 0;
         config.infoSwitchTime = 5;
         strcpy(config.xinzhiKey, "Not configured");
-        config.contrast = 255; // 亮度最亮
+        config.contrast = 255;
+        config.lastMonitorItem = 1;
         saveConfig();
     }
-    pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("OLEDMonitorClient", "12345678"); //esp8266ap配置
-    webserver.begin();                            // 网页服务器
+    //pinMode(ledPin, OUTPUT);
+    //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+    monitorItem = config.lastMonitorItem;
+    WiFi.mode(WIFI_STA);
+    webserver.begin(); // 网页服务器
     webserverInit();
     u8g2.begin();
     u8g2.enableUTF8Print();
-    isCON.once_ms(200, isCONFun);                                   // 定时检测连接状态
-    getServerInfoTicker.attach(2, getServaerInfo);                  // 定时获取服务器信息
-    getWeatherInfoTicker.attach(5, [] { getWeatherInfoFlag = 1; }); // 定时获取服务器信息
-    weatherNow.config(config.xinzhiKey, config.city, "c");          // 初始化心知天气配置
-    forecast.config(config.xinzhiKey, config.city, "c");            // 初始化心知天气配置
-    swInfoTimer.once(config.infoSwitchTime, infoIndexSw);           // 开启切换信息显示帧
-    btn1Init();                                                     // 按钮1初始化
+    weatherNow.config(config.xinzhiKey, config.city, "c"); // 初始化心知天气配置
+    forecast.config(config.xinzhiKey, config.city, "c");   // 初始化心知天气配置
+    swInfoTimer.once(config.infoSwitchTime, infoIndexSw);  // 开启切换信息显示帧
+    btn1Init();
+    //btn2Init();
+    checkWiFiConnectedTicker.attach_ms(200, checkWiFiConnected);
+    checkServerConnectedTicker.attach_ms(500, checkServerConnected);
+    getServerInfoTicker.attach(30, [] { getWeatherInfoFlag = 1; }); // 每隔20s通知主循环获取天气信息
+    getWeatherInfoTicker.attach(3, [] { getServerInfoFlag = 1; });  // 每隔2秒通知主循环获取服务器信息
 }
-
+// 网络连接检测,
 void loop()
 {
-    // 基础网路连接:检测并连接网络和服务端
-    if (CONStatusCode < 2) // 未连接服务器,根据连接检测更新的状态码来重连各级连接
+    switch (mainIndex)
     {
-        switch (CONStatusCode)
+    case 1:               // 检测界面
+        tryWiFiConnect(); //wifi监测
+        switch (monitorItem)
         {
-        case 0:
-            if (CONTimer >= 50) // 10 秒超时重连
-            {
-                WiFi.disconnect();
-                WiFi.begin(config.SSID, config.SSIDPW); // 尝试重新连接WiFi
-                CONTimer = 0;
-            };
-            break;
         case 1:
-            if (CONTimer >= 50) // 5 秒超时重连服务器
-            {
-                client.stop();
-                client.connect(config.serverIP, config.serverPort);
-                CONTimer = 0;
-            };
+            // 监控面板  WiFi连接正常在执行下面的服务器检测和服务器信息获取
+            tryServerConnect(); // 当Wifi连接正常,与服务器的连接不正常且到了重新连接服务器的时间会重新连接
+            getServaerInfo();
+            break;
+        case 2:
+            // 天气面板
+            getWeatherInfo(); // 请求天气数据
+            break;
         }
+        break;
+    case 2:
+        /* 设置界面 */
+        webserver.handleClient(); // ESP8266服务器检测新客户端连接
+        break;
     }
     OLEDDraw();                  // 屏幕绘制
     btn1.LOOPButtonController(); // 按钮循环检测
-    webserver.handleClient();    // ESP8266服务器检测新客户端连接
-    if (getWeatherInfoFlag)      // 请求天气数据
-        getWeatherInfo();
+    //btn2.LOOPButtonController(); // 按钮循环检测
 }
-
-// 定时检测客户端和服务器的连接状态并更新连接状态码,以及重连后的重置重连中的操作
-void isCONFun()
+void tryWiFiConnect()
 {
-    isCON.once_ms(200, isCONFun);      // 保持下次定时器
+    // 基础网路连接:根据状态码重连网络
+    if (!isWiFiConnected && WiFiReconnectTimeout >= 70) // wifi未连接,并且距离上次重新连接超过了15s,再次尝试重新连接
+    {
+        //Serial.println("尝试重新连接WiFi");
+        WiFi.disconnect();
+        WiFi.begin(config.SSID, config.SSIDPW); // 尝试重新连接WiFi
+        WiFiReconnectTimeout = 0;
+    }
+}
+void tryServerConnect()
+{
+    if (!isServerConnected && isWiFiConnected && serverReconnectTimeout >= 30)
+    {
+        client.stop();
+        client.connect(config.serverIP, config.serverPort);
+        serverReconnectTimeout = 0; // 重新开始重连服务器的定时
+    }
+}
+// 定时检测客户端和服务器的连接状态并更新连接状态码,以及重连后的重置重连中的操作
+void checkWiFiConnected()
+{
+    if (mainIndex != 1)
+        return;                        // 不在检主页面直接退出
     if (WiFi.status() != WL_CONNECTED) // WiFi未连接
     {
-        CONStatusCode = 0; // 降级连接状态检测码
-        CONTimer++;        // 开启重连WiFi定时器
-        return;
+        isWiFiConnected = 0;    // 降级连接状态检测码
+        WiFiReconnectTimeout++; // 开启重连WiFi定时器
     }
     else
     {
-        if (CONStatusCode < 1) // WiFi已连接,但状态码为未连接WiFi值修复状态码(也可看做重连成功部分)
-        {
-            CONStatusCode = 1;     // 更新状态码
-            CONTimer = 49;         // 重置loop中的重连超时计数器
-            gifTicker.detach();    // 关闭索引定时器
-            loadGIndxFstTimer = 1; // 重置索引定时器开启开关为开,以便下次连接加载动画使用
-        }
+        isWiFiConnected = 1;       // 更新状态码
+        WiFiReconnectTimeout = 50; // 重置loop中的重连超时计数器
+        gifTicker.detach();        // 关闭gif索引定时器,停止改变loading动画的索引
+        loadGIndxFstTimer = 1;     // 重置gif索引定时器开启开关为开,下次连接加载动画使用
     }
+}
+void checkServerConnected()
+{
     // 连接服务器部分
+    if (mainIndex != 1 || monitorItem != 1)
+        return;
     if (!client.connected()) // 未连接到服务器
     {
-        CONStatusCode = 1; // 降级连接状态检测码为连接WiFi未连接服务器1
-        CONTimer++;        // 开启重连WiFi定时器
-        return;            // 不在执行下面的服务器连接检测,无意义
+        isServerConnected = false; // 降级连接状态检测码为连接WiFi未连接服务器1
+        serverReconnectTimeout++;  // 开启重连WiFi定时器}
     }
-    else
+    else // 服务器已连接,但状态码为未连接
     {
-        if (CONStatusCode < 2) // 服务器已连接,但状态码为未连接WiFi值修复状态码
-        {
-            CONStatusCode = 2;     // 更新状态码
-            CONTimer = 24;         // 重置loop中的重连超时计数器
-            gifTicker.detach();    // 关闭索引定时器
-            loadGIndxFstTimer = 1; // 重置索引定时器开启开关为开,以便下次连接加载动画使用}
-        }
+        isServerConnected = true;    // 更新状态码
+        serverReconnectTimeout = 20; // 重置服务器下次重连间隔时间
+        gifTicker.detach();          // 关闭索引定时器
+        loadGIndxFstTimer = 1;       // 下次连接加载动画使用
     }
 }
-
-// 按钮初始化:绑定事件函数
-void btn1Init()
-{
-    btn1.onActionPressed(btn1Handler);     // 按下
-    btn1.onPressShortRelease(btn1Handler); //短按弹起
-    btn1.onPressLongRelease(btn1Handler);  // 长按弹起
-    btn1.onHoldStart(btn1Handler);         // 开始进入长按保持状态
-    btn1.onHoldContinuous(btn1Handler);    // 长按保持状态
-    btn1.onHoldRelease(btn1Handler);       // 长按保持状态弹起
-    btn1.onMultiClick(btn1Handler);        // 多击
-}
-
-// 根据状态码来更绘制屏幕显示内容
-void OLEDDraw()
-{
-    u8g2.setContrast(config.contrast);
-    switch (CONStatusCode)
-    {
-    case 0: // WiFi未连接显式内容
-        //开启一个定时器更新索引,没有更新状态码只能执行一次"开启帧定时器",除非状态码更新,但状态码更新要确保上次状态码的帧处理定时器关闭
-        OLEDLoadDraw(gifList, 66 + 12, 0, wifi2, 0, 0, "WiFi", 0, 64 - 16, 0, 64);
-        break;
-    case 1: //服务器未连接显式内容
-        OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 128 - getFontWidth(u8g2_font_helvB12_te, "Server"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
-        break;
-    case 2:                // 屏幕绘制从服务器获取到的系统信息
-        if (ServerLoading) // 服务端获取系统数据没准备好
-        {
-            OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 128 - getFontWidth(u8g2_font_helvB12_te, "Link"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
-        }
-        else
-        {
-            gifTicker.detach();    // 关闭索引定时器
-            loadGIndxFstTimer = 1; // 重置索引定时器开启开关为开,以便下次连接加载动画使用
-            OLEDInfoDraw();
-        }
-        break;
-    case 3:
-        weatherDraw();
-        break;
-    case 4:
-        settingDraw();
-    }
-}
-
 // 发送获取服务端系统信息请求
 void getServaerInfo()
 {
-    if (CONStatusCode != 2) // 没进入服务器信息画面
-        return;
-    client.write("get");    // 请求数据
-    Tcp_Handler(readTcp()); // 数据处理
+    if (isServerConnected && getServerInfoFlag)
+    {
+        client.write("get");    // 请求数据
+        Tcp_Handler(readTcp()); // 数据处理
+        getServerInfoFlag = 0;
+    }
 }
 
 // 读取服务端发送的数据
@@ -281,9 +260,7 @@ void Tcp_Handler(String data)
         {
             tempStr = (getValue(data, '\\', i));
             for (byte j = 0; j < 6; j++)
-            {
                 infoArr[i][j] = getValue(tempStr, '@', j);
-            }
         }
     }
 }
@@ -310,11 +287,13 @@ String getValue(String data, char separator, int index)
 //获取天气信息
 void getWeatherInfo()
 {
-    if (CONStatusCode != 3)
-        return; // 没进入天气页面(状态码4)不做处理
-    getXinzhiInfo();
-    getIndoorInfo();
-    getWeatherInfoFlag = 0; //等待5秒后继续请求
+    if (getWeatherInfoFlag && isWiFiConnected) //WiFi连接正常且到了获取天气数据的时间了
+    {
+        //Serial.println("请求心知天气");
+        getXinzhiInfo();
+        getIndoorInfo();
+        getWeatherInfoFlag = 0;
+    }
 }
 
 // 获取室内温度信息
@@ -322,17 +301,30 @@ void getIndoorInfo()
 {
     static byte timerOut = 0;
     float tempH, tempT;
-    tempH = dht.readHumidity();
-    tempT = dht.readTemperature();
-    if (isnan(tempH) || isnan(tempH))
+
+    if (sht30.get() == 0) // 温度获取正确
     {
+        //Serial.println("温度获取成功");
+        tempH = sht30.humidity;
+        tempT = sht30.cTemp;
+        Serial.println(tempH);
+        Serial.println(tempT);
+    }
+    else
+    {
+        //Serial.println("温度获取失败");
+        tempH = sht30.humidity;
+        tempT = sht30.cTemp;
+        //Serial.println(tempH);
+        //Serial.println(tempT);
         if (++timerOut >= 10)
         {
+            //Serial.println("温度失败展示错误码");
             timerOut = 0;
-            weatherInfo.day0IndoorHumidity = 99; // 错误
-            weatherInfo.day0IndoorDegree = 99;   // 错误
+            weatherInfo.day0IndoorHumidity = 99;
+            weatherInfo.day0IndoorDegree = 99; // 错误
         }
-        return;
+        return; // 停止下面的数据赋值
     }
     weatherInfo.day0IndoorHumidity = (int)round(tempH);
     weatherInfo.day0IndoorDegree = (int)round(tempT);
@@ -342,8 +334,7 @@ void getIndoorInfo()
 void getXinzhiInfo()
 {
     static byte timerOut = 0; // 当连续10次错误后才进行错误码更新,频繁出现错误界面太影响体验
-    Serial.println(timerOut);
-    if (weatherNow.update()) // 获取心知的实时天气
+    if (weatherNow.update())  // 获取心知的实时天气
     {
         timerOut = 0;
         weatherInfo.statusCode = ""; // 心知天气在获取数据成功的状态下不会返回错误码的,程序开始设置一个空字符串,主函数判断状态码的数据长度,以此来判断有没有错误
@@ -392,7 +383,46 @@ void getXinzhiInfo()
         return;
     }
 }
-
+// 根据状态码来更绘制屏幕显示内容
+void OLEDDraw()
+{
+    // 应用亮度
+    u8g2.setContrast(config.contrast);
+    // 检测面板
+    if (mainIndex == 1)
+        monitorDraw();
+    else if (mainIndex == 2)
+        settingDraw();
+}
+void monitorDraw()
+{
+    if (isWiFiConnected) // WiFi连接状态正常
+    {
+        switch (monitorItem)
+        {
+        case 1:
+            if (!isServerConnected) //服务器未连接显式内容
+                OLEDLoadDraw(gifList, -15, 0, server, 128 - 32, 0, "Server", 128 - getFontWidth(u8g2_font_helvB12_te, "Server"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
+            else
+            {
+                if (ServerLoading) // 服务端获取系统数据没准备好
+                    OLEDLoadDraw(gifList, -15, 0, link, 128 - 32, 0, "link", 128 - getFontWidth(u8g2_font_helvB12_te, "Link"), 64 - 16, 128 - getFontWidth(u8g2_font_t0_16b_tf, "Server") - 32, 64);
+                else
+                {
+                    gifTicker.detach();    // 关闭索引定时器
+                    loadGIndxFstTimer = 1; // 重置索引定时器开启开关为开,以便下次连接加载动画使用
+                    serverInfoDraw();
+                }
+            }
+            break;
+        case 2:
+            weatherDraw();
+            break;
+        }
+    }
+    else
+        OLEDLoadDraw(gifList, 66 + 12, 0, wifi2, 0, 0, "WiFi", 0, 64 - 16, 0, 64);
+}
 // 未连接服务的加载界面
 void OLEDLoadDraw(const unsigned char *const *gifList, byte gifX, byte gifY, const unsigned char *icon, byte iconX, byte iconY, const char *Heading, byte HeadingX, byte HeadingY, byte tipsX, byte tipsY)
 {
@@ -420,7 +450,7 @@ void gifIndexSw()
 }
 
 // 系统信息绘制
-void OLEDInfoDraw()
+void serverInfoDraw()
 {
     u8g2.clearBuffer();
     // 提取数组的值
@@ -470,9 +500,7 @@ void OLEDInfoDraw()
         // 进度条1
         // 提取服务端列表模式下的第一组数据
         for (byte i = 0; i < 4; i++)
-        {
             ListInfoArr[i] = getValue(infoArr[serverInfoIndex][1], '#', i);
-        }
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
         u8g2.drawStr(0, 14, ListInfoArr[0].c_str()); //key
         u8g2.setFont(u8g2_font_t0_14b_mr);
@@ -502,10 +530,10 @@ void OLEDInfoDraw()
 // 切换信息显示帧
 void infoIndexSw()
 {
-    if (++serverInfoIndex >= infoItemsNum) // 切换服务器信息帧
-        serverInfoIndex = 0;
-    if (++weatherInfoIndex >= 3) // 切换天气信息帧
-        weatherInfoIndex = 0;
+    if (++serverInfoIndex >= infoItemsNum)
+        serverInfoIndex = 0; // 切换服务器信息帧
+    if (++weatherInfoIndex >= 3)
+        weatherInfoIndex = 0; // 切换天气信息帧
     swInfoTimer.once(config.infoSwitchTime, infoIndexSw);
 }
 
@@ -513,18 +541,21 @@ void infoIndexSw()
 void settingDraw()
 {
     u8g2.clearBuffer();
-    switch (settingItems)
+    switch (settingItem)
     {
     case 1: // 主界面各项信息切换
-        settingItemsDraw("Switch Speed", config.infoSwitchTime, 10, "s");
+        settingItemDraw("Switch Speed", config.infoSwitchTime, 10, "s");
         break;
     case 2:
-        settingItemsDraw("Bright Lv", config.contrast, 255, "Lv");
+        settingItemDraw("Bright Lv", config.contrast, 255, "Lv");
+        break;
+    case 3:
+        WiFi_APDraw();
         break;
     }
     u8g2.sendBuffer();
 }
-void settingItemsDraw(const char *head, byte value, byte maxValue, const char *unit)
+void settingItemDraw(const char *head, byte value, byte maxValue, const char *unit)
 {
     char str[4];          // 创建一个3个字符的空字符串,来保存转换后的传递的value值
     itoa(value, str, 10); // 转换传递的值为char
@@ -545,6 +576,9 @@ void settingItemsDraw(const char *head, byte value, byte maxValue, const char *u
     u8g2.drawBox(2, 54, (int(floor(value / float(maxValue) * 124))), 8);
     u8g2.setFontMode(0);
 }
+void WiFi_APDraw()
+{
+}
 // 获取字符宽度
 byte getFontWidth(const uint8_t *font, const char *str)
 {
@@ -558,62 +592,53 @@ String pcStr(String fst, String sec)
     tempStr += "%";                                                  // 添加百分号
     return tempStr;
 }
-
-// 按钮1处理函数
+//按钮初始化 : 绑定事件函数
+void btn1Init()
+{
+    btn1.onActionPressed(btn1Handler);     // 按下
+    btn1.onPressShortRelease(btn1Handler); //短按弹起
+    btn1.onPressLongRelease(btn1Handler);  // 长按弹起
+    btn1.onHoldStart(btn1Handler);         // 开始进入长按保持状态
+    btn1.onHoldContinuous(btn1Handler);    // 长按保持状态
+    btn1.onHoldRelease(btn1Handler);       // 长按保持状态弹起
+    btn1.onMultiClick(btn1Handler);        // 多击
+}
+// void btn2Init()
+// {
+//     btn2.onActionPressed(btn2Handler);     // 按下
+//     btn2.onPressShortRelease(btn2Handler); //短按弹起
+//     btn2.onPressLongRelease(btn2Handler);  // 长按弹起
+//     btn2.onHoldStart(btn2Handler);         // 开始进入长按保持状态
+//     btn2.onHoldContinuous(btn2Handler);    // 长按保持状态
+//     btn2.onHoldRelease(btn2Handler);       // 长按保持状态弹起
+//     btn2.onMultiClick(btn2Handler);        // 多击
+// }
+// 按钮使用GPIO10引脚的,GPIO9的会触发ESP8266重启,我没能力解决
+// 下面操作按钮触发的指示灯代码暂时注释掉,esp12f内置指示灯和OLEDIIC引脚冲突
+// 长按在主页和设置页切换
+// 主页单击暂停继续,设置单击增加值
+// 主页双击切换检测项目,设置双节切换设置项
 void btn1Handler()
 {
-    static byte lastCONStatusCode;
+    static byte lastMonitorItem;
     static long lastTime = millis();
     long nowTime = millis();
     switch (btn1.getClickType()) //判断按钮事件类型,进行不同的处理
     {
-        // 按下
-    case _ActionPressed:
-        digitalWrite(ledPin, LOW); // 开启LED指示灯
+    case _ActionPressed: // 按下
+        //digitalWrite(LED_BUILTIN, LOW); // 开启LED指示灯
         break;
         //单击
     case _PressShortRelease:
-        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-        switch (CONStatusCode)
+        //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+        switch (mainIndex)
         {
-        case 4:                                                    //在状态码4(设置界面)下调节各项设置的数值
-            settingTimer.detach();                                 // 重置设置超时自动退出定时器(按下按钮重新计时)
-            settingTimer.once(3, closeSetting, lastCONStatusCode); //长时间无操作自动退出调速界面
-            switch (settingItems)
-            {
-            case 1: // 调速界面下调节数值
-                if (++config.infoSwitchTime >= 11)
-                    config.infoSwitchTime = 0;
-                break;
-            case 2: // 亮度调节界面下调节数值(3级亮度调节)
-                config.contrast += 127;
-                if (config.contrast >= 256)
-                {
-                    config.contrast = 1;
-                }
-                break;
-            }
-            saveConfig(); // 保存到EEPROM
+        case 1:
+            // 主界面单击暂停继续播放
             break;
         case 2:
-        case 3: // 2,3(即天气或服务器监控界面)下来回切花画面
-            if (++CONStatusCode >= 4)
-                CONStatusCode = 2;
-            serverInfoIndex = 0;
-            weatherInfoIndex = 0;   // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
-            getWeatherInfoFlag = 1; // 立即请求天气数据
-            break;
-        }
-        break;
-        // 长按(和上面单击按钮作用一样)
-    case _PressLongRelease:
-        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-        switch (CONStatusCode)
-        {
-        case 4:                                                    //在状态码4(设置界面)下调节各项设置的数值
-            settingTimer.detach();                                 // 重置设置超时自动退出定时器(按下按钮重新计时)
-            settingTimer.once(3, closeSetting, lastCONStatusCode); //长时间无操作自动退出调速界面
-            switch (settingItems)
+            // 设置界面单击更改值
+            switch (settingItem)
             {
             case 1: // 调速界面下调节数值
                 if (++config.infoSwitchTime >= 11)
@@ -622,104 +647,259 @@ void btn1Handler()
             case 2: // 亮度调节界面下调节数值(3级亮度调节)
                 config.contrast += 127;
                 if (config.contrast >= 256)
-                {
                     config.contrast = 1;
-                    Serial.println(config.contrast);
-                }
                 break;
             }
             saveConfig(); // 保存到EEPROM
             break;
-        case 2:
-        case 3: // 2,3(即天气或服务器监控界面)下来回切花画面
-            if (++CONStatusCode >= 4)
-                CONStatusCode = 2;
-            serverInfoIndex = 0;
-            weatherInfoIndex = 0; // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
-            break;
         }
         break;
-        // 按住结束 进入或退出设置
-    case _HoldRelease:
-        digitalWrite(ledPin, HIGH); // 关闭LED指示灯
-        switch (CONStatusCode)
+    case _PressLongRelease: // 长按(和上面单击按钮作用一样)
+                            //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+        switch (mainIndex)
         {
-        case 4: // 当前为状态码4(设置界面)情况下长按将退出设置界面,回到进入设置前的界面
-            closeSetting(lastCONStatusCode);
+        case 1:
+            // 主界面单击暂停继续播放
             break;
         case 2:
-        case 3:                                //状态码23长按进入设置界面
-            lastCONStatusCode = CONStatusCode; // 保存当前屏幕显示模式
-            CONStatusCode = 4;
-            settingTimer.once(5, closeSetting, lastCONStatusCode);
+            // 设置界面单击更改值
+            switch (settingItem)
+            {
+            case 1: // 调速界面下调节数值
+                if (++config.infoSwitchTime >= 11)
+                    config.infoSwitchTime = 1;
+                break;
+            case 2: // 亮度调节界面下调节数值(3级亮度调节)
+                config.contrast += 127;
+                if (config.contrast >= 256)
+                    config.contrast = 1;
+                break;
+            }
+            saveConfig(); // 保存到EEPROM
             break;
         }
         break;
-        // 按住只是闪灯提醒用户,按住弹起才会执行设置
-    case _HoldContinuous:
-        settingTimer.detach(); // 设置界面下,在按住按钮时,禁止长时间无操作自动退出功能
+    case _HoldRelease: // 按住结束 切换主界面
+        //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+        switch (mainIndex)
+        {
+        case 1:                                           // 检测界面进入设置
+            WiFi.disconnect(true);                        // 关闭wifi连接
+            WiFi.mode(WIFI_AP);                           // 开启ap模式
+            mainIndex = 2;                                // 进入设置页面
+            WiFi.softAP("OLEDMonitorClient", "12345678"); //esp8266ap配置
+            lastMonitorItem = monitorItem;                // 保存当前屏幕显示模式
+            break;
+        case 2:                          // 在设置页面,退回到主页面
+            WiFi.softAPdisconnect(true); // 关闭热点模式
+            WiFi.mode(WIFI_STA);
+            mainIndex = 1;
+            monitorItem = lastMonitorItem;
+            break;
+        }
+        break;
+    case _HoldContinuous: // 按住只是闪灯提醒用户,按住弹起才会执行设置
         if (nowTime - lastTime >= 200)
         {
-            digitalWrite(ledPin, !digitalRead(ledPin)); // 闪烁led灯
+            //digitalWrite(LED_BUILTIN, !digitalRead(ledPin)); // 闪烁led灯
             lastTime = millis();
         }
         break;
-        // 按钮多击
     case _MultiClicks:
         // 先灭灯
-        digitalWrite(ledPin, HIGH);                            // 关闭LED指示灯
-        settingTimer.detach();                                 // 重置设置超时自动退出定时器(按下按钮重新计时)
-        settingTimer.once(3, closeSetting, lastCONStatusCode); //长时间无操作自动退出调速界面
+        //digitalWrite(ledPin, HIGH); // 关闭LED指示灯
         switch (btn1.getNumberOfMultiClicks())
         {
         case 2: //双击
             //判断所在界面,是主界面还是设置界面
-            switch (CONStatusCode)
+            switch (mainIndex)
             {
-            case 2:
-            case 3:
-                // 暂停画面播放
-                Serial.println("主界面双击");
+            case 1: // 在主界面切换轮播
+                if (++monitorItem >= 3)
+                    monitorItem = 1;
+                config.lastMonitorItem = monitorItem; // 保存到EEPROME,下次启动继续这个检测项目
+                saveConfig();
+                serverInfoIndex = 0;    // 服务器监控状态返回第一帧
+                weatherInfoIndex = 0;   // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
+                getWeatherInfoFlag = 1; // 立即请求天气数据
+                getServerInfoFlag = 1;
                 break;
-            case 4: // 在设置界面双击切换设置项
-                if (++settingItems >= 3)
-                    settingItems = 1;
+            case 2: // 在设置界面双击切换设置项
+                if (++settingItem >= 3)
+                    settingItem = 1;
                 break;
             }
-            break;
-            // 其他击无操作
-        default:
             break;
         }
         break;
     }
 }
 
-// 长按超时
-void closeSetting(byte lastCONStatusCode)
+// void btn1Handler()
+// {
+//     static byte lastMonitorItem;
+//     static long lastTime = millis();
+//     long nowTime = millis();
+//     switch (btn1.getClickType()) //判断按钮事件类型,进行不同的处理
+//     {
+//     case _ActionPressed: // 按下
+//         //digitalWrite(LED_BUILTIN, LOW); // 开启LED指示灯
+//         break;
+//         //单击
+//     case _PressShortRelease:
+//         //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+//         switch (mainIndex)
+//         {
+//         case 1:
+//             // 暂停播放
+//             break;
+//         case 2:
+//             // 切换设置项目
+//             if (++settingItem >= 3)
+//                 settingItem = 1;
+//             break;
+//         }
+//         break;
+//     case _PressLongRelease: // 长按(和上面单击按钮作用一样)
+//         //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+//         switch (mainIndex)
+//         {
+//         case 1:
+//             // 暂停播放
+//             break;
+//         case 2:
+//             // 切换设置项目
+//             if (++settingItem >= 3)
+//                 settingItem = 1;
+//             break;
+//         }
+//         break;
+//     case _HoldRelease: // 按住结束 切换主界面
+//         //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+//         switch (mainIndex)
+//         {
+//         case 1:                                           // 检测界面进入设置
+//             WiFi.mode(WIFI_AP);                           // 开启ap模式
+//             mainIndex = 2;                                // 进入设置页面
+//             WiFi.softAP("OLEDMonitorClient", "12345678"); //esp8266ap配置
+//             lastMonitorItem = monitorItem;                // 保存当前屏幕显示模式
+//             break;
+//         case 2: // 在设置页面,退回到主页面
+//             WiFi.mode(WIFI_STA);
+//             mainIndex = 1;
+//             monitorItem = lastMonitorItem;
+//             break;
+//         }
+//         break;
+//     case _HoldContinuous: // 按住只是闪灯提醒用户,按住弹起才会执行设置
+//         if (nowTime - lastTime >= 200)
+//         {
+//             //digitalWrite(LED_BUILTIN, !digitalRead(ledPin)); // 闪烁led灯
+//             lastTime = millis();
+//         }
+//         break;
+//     }
+// }
+// //按钮2处理
+// void btn2Handler()
+// {
+//     static byte lastMonitorItem;
+//     static long lastTime = millis();
+//     long nowTime = millis();
+//     switch (btn2.getClickType()) //判断按钮事件类型,进行不同的处理
+//     {
+//     case _ActionPressed: // 按下
+//         //digitalWrite(LED_BUILTIN, LOW); // 开启LED指示灯
+//         break;
+//         //单击
+//     case _PressShortRelease:
+//         //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+//         switch (mainIndex)
+//         {
+//         case 1: // 在主界面切换轮播
+//             if (monitorItem++ >= 3)
+//                 monitorItem = 1;
+//             serverInfoIndex = 0;    // 服务器监控状态返回第一帧
+//             weatherInfoIndex = 0;   // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
+//             getWeatherInfoFlag = 1; // 立即请求天气数据
+//             getServerInfoFlag = 1;
+//             break;
+//         case 2: // 在设置界面更改值
+//             switch (settingItem)
+//             {
+//             case 1: // 调速界面下调节数值
+//                 if (++config.infoSwitchTime >= 11)
+//                     config.infoSwitchTime = 1;
+//                 break;
+//             case 2: // 亮度调节界面下调节数值(3级亮度调节)
+//                 config.contrast += 127;
+//                 if (config.contrast >= 256)
+//                     config.contrast = 1;
+//                 break;
+//             }
+//             saveConfig(); // 保存到EEPROM
+//         }
+//         break;
+//     case _PressLongRelease: // 长按(和上面单击按钮作用一样)
+//         //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+//         switch (mainIndex)
+//         {
+//         case 1: // 在主界面切换轮播
+//             if (monitorItem++ >= 3)
+//                 monitorItem = 1;
+//             serverInfoIndex = 0;    // 服务器监控状态返回第一帧
+//             weatherInfoIndex = 0;   // 切换信息显示界面需要把天气或者服务器信息显示帧重置为第0帧
+//             getWeatherInfoFlag = 1; // 立即请求天气数据
+//             getServerInfoFlag = 1;
+//             break;
+//         case 2: // 在设置界面更改值
+//             switch (settingItem)
+//             {
+//             case 1: // 调速界面下调节数值
+//                 if (++config.infoSwitchTime >= 11)
+//                     config.infoSwitchTime = 1;
+//                 break;
+//             case 2: // 亮度调节界面下调节数值(3级亮度调节)
+//                 config.contrast += 127;
+//                 if (config.contrast >= 256)
+//                     config.contrast = 1;
+//                 break;
+//             }
+//             saveConfig(); // 保存到EEPROM
+//         }
+//         break;
+//     case _HoldRelease: // 按住结束 切换主界面
+//         //digitalWrite(LED_BUILTIN, HIGH); // 关闭LED指示灯
+//         break;
+//     case _HoldContinuous: // 按住只是闪灯提醒用户,按住弹起才会执行设置
+//         if (nowTime - lastTime >= 200)
+//         {
+//             //digitalWrite(LED_BUILTIN, !digitalRead(ledPin)); // 闪烁led灯
+//             lastTime = millis();
+//         }
+//         break;
+//     }
+// }
+//}
+void ErrorDraw(const unsigned char *icon, const char *Heading, const char *Content, String errorCode)
 {
-    settingTimer.detach();             // 关闭长时间无操作自动退出功能定时器
-    CONStatusCode = lastCONStatusCode; // 回复上次状态码
-    settingItems = 1;                  // 重置设置项目为第一个
+    u8g2.drawXBMP(0, 0, 50, 50, icon); // 错误icon
+    u8g2.setFont(u8g2_font_tenthinnerguys_tf);
+    u8g2.drawUTF8(50 + (128 - 50 - u8g2.getUTF8Width(Heading)) / 2, 23, Heading); // 错误标题
+    u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
+    u8g2.drawUTF8(50 + (128 - 50 - u8g2.getUTF8Width(Content)) / 2, 40, Content); // 错误内容
+    u8g2.drawLine(0, 50, 128, 50);                                                // 底部横线
+    u8g2.drawUTF8(0, 63, "错误代码:");                                            // 底部错误码显示
+    u8g2.setFont(u8g2_font_tenthinnerguys_tf);
+    u8g2.drawStr(128 - u8g2.getUTF8Width(errorCode.c_str()), 63, errorCode.c_str()); // 错误码
 }
-
 // 绘制天气界面
 void weatherDraw()
 {
     String emptyStr = ""; // 空字符串
     u8g2.clearBuffer();
     if (weatherInfo.statusCode.length() != 0) // 反回了错误码
-    {
-        u8g2.drawXBMP(0, 0, 50, 50, nan99); // 错误icon
-        u8g2.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2.drawUTF8(50 + (128 - 50 - u8g2.getUTF8Width("ERROE")) / 2, 23, "ERROE!"); // 错误标题
-        u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
-        u8g2.drawUTF8(50 + (128 - 50 - u8g2.getUTF8Width("数据错误:(")) / 2, 40, "数据错误:("); // 错误内容
-        u8g2.drawLine(0, 50, 128, 50);                                                          // 底部横线
-        u8g2.drawUTF8(0, 63, "错误代码:");                                                      // 底部错误码显示
-        u8g2.setFont(u8g2_font_tenthinnerguys_tf);
-        u8g2.drawStr(128 - u8g2.getUTF8Width(weatherInfo.statusCode.c_str()), 63, weatherInfo.statusCode.c_str()); // 错误码内容
-    }
+        ErrorDraw(nan99, "Error!", "数据错误", weatherInfo.statusCode);
     else
     {
         // 绘制天气界面
@@ -831,8 +1011,8 @@ void webWiFiHandle()
     strcpy(config.SSIDPW, webserver.arg("SSIDPW").c_str()); // 更新config
     // 保存到EEPROM
     saveConfig();
-    webRootHandle();   // 获取到浏览器发送的请求后返回首页更新
-    WiFi.disconnect(); // 关闭wifi连接,会在loop中重新连接
+    webRootHandle(); // 获取到浏览器发送的请求后返回首页更新
+                     // WiFi重连
 }
 
 void webXinzhiHandle()
@@ -843,6 +1023,7 @@ void webXinzhiHandle()
     forecast.config(config.xinzhiKey, config.city, "c");
     saveConfig();
     webRootHandle(); // 获取到浏览器发送的请求后返回首页更新
+                     // 心知天气重新获取
 }
 
 void webServerHandle()
@@ -853,6 +1034,7 @@ void webServerHandle()
     // 保存到EEPROM
     saveConfig();
     webRootHandle(); // 获取到浏览器发送的请求后返回首页更新
+                     // 服务器重连
 }
 
 // config保存到EEPROME
@@ -861,9 +1043,7 @@ void saveConfig()
     EEPROM.begin(1024);
     uint8_t *p = (uint8_t *)(&config);
     for (int i = 0; i < sizeof(config); i++)
-    {
         EEPROM.write(i, *(p + i));
-    }
     EEPROM.commit();
 }
 
@@ -873,8 +1053,6 @@ void loadConfig()
     EEPROM.begin(1024);
     uint8_t *p = (uint8_t *)(&config);
     for (int i = 0; i < sizeof(config); i++)
-    {
         *(p + i) = EEPROM.read(i);
-    }
     EEPROM.commit();
 }
