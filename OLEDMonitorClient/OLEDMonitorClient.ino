@@ -455,11 +455,11 @@ void serverInfoDraw()
     u8g2.clearBuffer();
     // 提取数组的值
     const String view = infoArr[serverInfoIndex][0],
-                 option = infoArr[serverInfoIndex][1],
-                 key = infoArr[serverInfoIndex][2],
-                 value = infoArr[serverInfoIndex][3],
-                 unit = infoArr[serverInfoIndex][4],
-                 all = infoArr[serverInfoIndex][5];
+                 option = infoArr[serverInfoIndex][5],
+                 key = infoArr[serverInfoIndex][1],
+                 value = infoArr[serverInfoIndex][2],
+                 unit = infoArr[serverInfoIndex][3],
+                 all = infoArr[serverInfoIndex][4];
     float pl = value.toFloat() / all.toFloat(); // 已用占比
     //String splitMonitorItem[4];
     char pc[3];
@@ -501,7 +501,7 @@ void serverInfoDraw()
         // 进度条1
         // 提取服务端列表模式下的第一组数据
         for (byte i = 0; i < 4; i++)
-            splitMonitorItem[i] = getValue(infoArr[serverInfoIndex][1], '#', i);
+            splitMonitorItem[i] = getValue(option, '#', i);
         u8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
         u8g2.drawStr(0, 14, splitMonitorItem[0].c_str()); //key
         u8g2.setFont(u8g2_font_t0_14b_mr);
@@ -527,12 +527,35 @@ void serverInfoDraw()
     }
     else if (view.toInt() == 3)
     {
+        // 格式 3@title@0@0@0@key1#value1#unit1#all1#2#2#2#2#
         String splitMonitorItems[3][4];
         for (int i = 0; i < 3; i++)
         {
             for (int j = 0; j < 4; j++)
             {
-                splitMonitorItems[i][j] = getValue(infoArr[serverInfoIndex][1], '#', i * 4 + j); // 从复合数据的值中每四个提取
+                splitMonitorItems[i][j] = getValue(option, '#', i * 4 + j); // 从复合数据的option值中每四个提取
+            }
+        }
+        u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
+        u8g2.drawUTF8((128-u8g2.getUTF8Width(key) / 2, 13, key.c_str()); // 3层信息的标题
+        u8g2.drawUTF8(0, 29, splitMonitorItems[0][1].c_str());  // 第一层信息的key
+        u8g2.drawUTF8(0, 29, splitMonitorItems[0][2].c_str());  // 第一层信息的key
+        u8g2.drawUTF8((128-u8g2.getUTF8Width(uint), 29, splitMonitorItems[0][3].c_str());  // 第一层信息的unit
+        u8g2.drawUTF8(0, 45, splitMonitorItems[1][1].c_str());  // 第2层信息的key
+        u8g2.drawUTF8(0, 45, splitMonitorItems[1][2].c_str());  // 第2层信息的key
+        u8g2.drawUTF8(0, 45, splitMonitorItems[1][3].c_str());  // 第2层信息的key
+        u8g2.drawUTF8(0, 61, splitMonitorItems[2][1].c_str());  // 第3层信息的key
+        u8g2.drawUTF8(0, 61, splitMonitorItems[2][2].c_str());  // 第3层信息的key
+        u8g2.drawUTF8(0, 61, splitMonitorItems[2][3].c_str());  // 第3层信息的key
+
+    } else if (view.toInt() == 4)
+    {
+        String splitMonitorItems[3][4];
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 4; j++)
+            {
+                splitMonitorItems[i][j] = getValue(option, '#', i * 4 + j); // 从复合数据的option值中每四个提取
             }
         }
     }
