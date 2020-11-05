@@ -529,10 +529,12 @@ void serverInfoDraw()
     {
         String splitMonitorItems[3][4];
         for (int i = 0; i < 3; i++)
+        {
             for (int j = 0; j < 4; j++)
             {
                 splitMonitorItems[i][j] = getValue(infoArr[serverInfoIndex][1], '#', i * 4 + j); // 从复合数据的值中每四个提取
             }
+        }
     }
     u8g2.sendBuffer();
 }
