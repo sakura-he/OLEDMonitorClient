@@ -251,8 +251,11 @@ void Tcp_Handler(String data)
         // 计算服务器发送的检测项目个数 ,字符串有几个"\\",就有n+1个项目
         for (byte i = 0; i < data.length() - 1; i++)
         {
+            // if (!(data[i] & 0x80))
+            // {
             if (data.charAt(i) == '\\')
                 num++;
+            // }
         }
         infoItemsNum = num + 1; // 更新服务器发送的项目数量
         // 处理获取到的字符到信息数组中infoArr
@@ -274,12 +277,15 @@ String getValue(String data, char separator, int index)
 
     for (int i = 0; i <= maxIndex && found <= index; i++)
     {
+        // if (!(data[i] & 0x80))
+        // {
         if (data.charAt(i) == separator || i == maxIndex)
         {
             found++;
             strIndex[0] = strIndex[1] + 1;
             strIndex[1] = (i == maxIndex) ? i + 1 : i;
         }
+        // }
     }
     return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
@@ -455,13 +461,12 @@ void serverInfoDraw()
     u8g2.clearBuffer();
     // 提取数组的值
     const String view = infoArr[serverInfoIndex][0],
-                 option = infoArr[serverInfoIndex][5],
                  key = infoArr[serverInfoIndex][1],
                  value = infoArr[serverInfoIndex][2],
                  unit = infoArr[serverInfoIndex][3],
-                 all = infoArr[serverInfoIndex][4];
+                 all = infoArr[serverInfoIndex][4],
+                 option = infoArr[serverInfoIndex][5];
     float pl = value.toFloat() / all.toFloat(); // 已用占比
-    //String splitMonitorItem[4];
     char pc[3];
     itoa(int(pl * 100), pc, 10);
     String pcstr(pc);
@@ -523,40 +528,57 @@ void serverInfoDraw()
         u8g2.drawStr(2 + (124 - u8g2.getUTF8Width(pcStr(value, all).c_str())) / 2, 60, pcStr(value, all).c_str());         // 百分比文字
         u8g2.setDrawColor(1);
         u8g2.setFontMode(0);
-        break;
     }
     else if (view.toInt() == 3)
     {
-        // 格式 3@title@0@0@0@key1#value1#unit1#all1#2#2#2#2#
-        String splitMonitorItems[3][4];
-        for (int i = 0; i < 3; i++)
-        {
-            for (int j = 0; j < 4; j++)
-            {
-                splitMonitorItems[i][j] = getValue(option, '#', i * 4 + j); // 从复合数据的option值中每四个提取
-            }
-        }
+        // 格式 3@title(key)@0@0@0@key1#value1#unit1#
+        u8g2.setFontMode(1);
         u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
-        u8g2.drawUTF8((128-u8g2.getUTF8Width(key) / 2, 13, key.c_str()); // 3层信息的标题
-        u8g2.drawUTF8(0, 29, splitMonitorItems[0][1].c_str());  // 第一层信息的key
-        u8g2.drawUTF8(0, 29, splitMonitorItems[0][2].c_str());  // 第一层信息的key
-        u8g2.drawUTF8((128-u8g2.getUTF8Width(uint), 29, splitMonitorItems[0][3].c_str());  // 第一层信息的unit
-        u8g2.drawUTF8(0, 45, splitMonitorItems[1][1].c_str());  // 第2层信息的key
-        u8g2.drawUTF8(0, 45, splitMonitorItems[1][2].c_str());  // 第2层信息的key
-        u8g2.drawUTF8(0, 45, splitMonitorItems[1][3].c_str());  // 第2层信息的key
-        u8g2.drawUTF8(0, 61, splitMonitorItems[2][1].c_str());  // 第3层信息的key
-        u8g2.drawUTF8(0, 61, splitMonitorItems[2][2].c_str());  // 第3层信息的key
-        u8g2.drawUTF8(0, 61, splitMonitorItems[2][3].c_str());  // 第3层信息的key
-
-    } else if (view.toInt() == 4)
-    {
-        String splitMonitorItems[3][4];
-        for (int i = 0; i < 3; i++)
+        u8g2.drawUTF8((128 - u8g2.getUTF8Width(key.c_str())) / 2, 13, key.c_str()); // 3层数据样式的标题(居中)
+        for (byte i = 0; i < 3; i++)
         {
-            for (int j = 0; j < 4; j++)
+            String splitMonitorItem[3]; // 存放从复合数据中提取的每一层数据
+            for (byte j = 0; j < 3; j++)
             {
-                splitMonitorItems[i][j] = getValue(option, '#', i * 4 + j); // 从复合数据的option值中每四个提取
+                splitMonitorItem[j] = getValue(option, '#', i * 3 + j); // 从复合数据的option值中每四个提取}
             }
+            u8g2.drawUTF8(0, (i + 2) * 16 - 3, (splitMonitorItem[0] + ":").c_str());                                                                                                 // 绘制每层数据的value
+            u8g2.drawUTF8(128 - u8g2.getUTF8Width(splitMonitorItem[2].c_str()) - u8g2.getUTF8Width(splitMonitorItem[1].c_str()) - 5, (i + 2) * 16 - 3, splitMonitorItem[1].c_str()); // value
+            u8g2.drawUTF8(128 - u8g2.getUTF8Width(splitMonitorItem[2].c_str()), (i + 2) * 16 - 3, splitMonitorItem[2].c_str());                                                      // 第一层信息的unit
+        }
+    }
+    else if (view.toInt() == 4)
+    {
+        u8g2.setFontMode(1);
+        u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
+        u8g2.drawUTF8((128 - u8g2.getUTF8Width(key.c_str())) / 2, 13, key.c_str()); // 3层数据样式的标题(居中)
+        for (byte i = 0; i < 4; i++)
+        {
+            String splitMonitorItem[3]; // 存放从复合数据中提取的每一层数据
+            for (byte j = 0; j < 3; j++)
+            {
+                splitMonitorItem[j] = getValue(option, '#', i * 3 + j); // 从复合数据的option值中每四个提取}
+            }
+            u8g2.drawUTF8(0, (i + 1) * 16 - 3, (splitMonitorItem[0] + ":").c_str());                                                                                                 // 绘制每层数据的value
+            u8g2.drawUTF8(128 - u8g2.getUTF8Width(splitMonitorItem[2].c_str()) - u8g2.getUTF8Width(splitMonitorItem[1].c_str()) - 5, (i + 2) * 16 - 3, splitMonitorItem[1].c_str()); // value
+            u8g2.drawUTF8(128 - u8g2.getUTF8Width(splitMonitorItem[2].c_str()), (i + 2) * 16 - 3, splitMonitorItem[2].c_str());                                                      // 第一层信息的unit
+        }
+    }
+    else if (view.toInt() == 5)
+    {
+        u8g2.setFontMode(1);
+        u8g2.setFont(u8g2_font_wqy13_t_gb2312a);
+        u8g2.drawUTF8((128 - u8g2.getUTF8Width(key.c_str())) / 2, 13, key.c_str()); // 3层数据样式的标题(居中)
+        for (byte i = 0; i < 4; i++)
+        {
+            String splitMonitorItem[3]; // 存放从复合数据中提取的每一层数据
+            for (byte j = 0; j < 3; j++)
+            {
+                splitMonitorItem[j] = getValue(option, '#', i * 3 + j); // 从复合数据的option值中每四个提取}
+            }
+            u8g2.drawUTF8(0, (i + 1) * 16 - 3, (splitMonitorItem[0] + ":").c_str());                                                                                                 // 绘制每层数据的value
+            u8g2.drawUTF8(128 - u8g2.getUTF8Width(splitMonitorItem[2].c_str()) - u8g2.getUTF8Width(splitMonitorItem[1].c_str()) - 5, (i + 2) * 16 - 3, splitMonitorItem[1].c_str()); // value
+            u8g2.drawUTF8(128 - u8g2.getUTF8Width(splitMonitorItem[2].c_str()), (i + 2) * 16 - 3, splitMonitorItem[2].c_str());                                                      // 第一层信息的unit
         }
     }
     u8g2.sendBuffer();
@@ -669,7 +691,10 @@ void btn1Handler()
         switch (mainIndex)
         {
         case 1:
-            // 主界面单击暂停继续播放
+            if (++serverInfoIndex >= infoItemsNum)
+                serverInfoIndex = 0; // 切换服务器信息帧
+            if (++weatherInfoIndex >= 3)
+                weatherInfoIndex = 0; // 切换天气信息帧}
             break;
         case 2:
             // 设置界面单击更改值
