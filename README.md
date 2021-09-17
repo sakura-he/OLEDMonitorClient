@@ -11,6 +11,7 @@
 - [x] 监控主机信息
 - [x] 监控天气信息(气象站)
 - [x] 一些设置菜单
+- [ ] ![ConnectionDiagram](README.assets/演示.gif)
 
 ## 安装
 
